@@ -8,12 +8,20 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.setGlobalPrefix('v1');
   app.enableCors({ origin: '*', credentials: true });
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
-  const config = new DocumentBuilder().setTitle('N-PuDo-N API').setVersion('1.0.0').addBearerAuth().build();
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
+
+  const config = new DocumentBuilder()
+    .setTitle('Neighborhood Distribution API')
+    .setDescription('API for local parcel distribution network')
+    .setVersion('1.0.0')
+    .addBearerAuth()
+    .build();
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document);
-  await app.listen(3000);
-  logger.log('Server running on http://localhost:3000');
-  logger.log('Swagger: http://localhost:3000/api/docs');
+
+  const port = process.env.PORT || 3000;
+  await app.listen(port);
+  logger.log('Server running on http://localhost:' + port);
+  logger.log('Swagger: http://localhost:' + port + '/api/docs');
 }
 bootstrap();

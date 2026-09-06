@@ -1,5 +1,5 @@
 ﻿name: courier_app
-description: N-PuDo-N Courier App
+description: Courier App - Neighborhood Distribution
 publish_to: 'none'
 version: 1.0.0+1
 environment:

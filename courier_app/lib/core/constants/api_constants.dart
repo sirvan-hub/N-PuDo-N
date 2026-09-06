@@ -7,5 +7,4 @@
   static const String requestHubDelivery = '/courier/parcels/request-hub';
   static const String deliverToHub = '/courier/parcels/deliver-to-hub';
   static const String nearbyHubs = '/hubs/nearby';
-  static const String returns = '/courier/parcels/returns';
 }
