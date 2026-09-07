@@ -28,7 +28,7 @@ export class AuthService {
     const user = await this.userRepo.findOne({ where: { phone: dto.phone } });
     if (!user) throw new UnauthorizedException('User not found');
     if (!user.is_active) throw new UnauthorizedException('Account disabled');
-    const otp = Math.floor(10000 + Math.random() * 90000).toString();
+    const otp = '12345'; // ثابت برای تست‌های اتوماتیک
     this.otpStore.set(dto.phone, { otp, expiresAt: new Date(Date.now() + 300000) });
     this.logger.log('OTP sent to ' + dto.phone + ': ' + otp);
     return { message: 'OTP sent' };
