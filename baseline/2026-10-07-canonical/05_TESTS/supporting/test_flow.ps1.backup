@@ -1,0 +1,204 @@
+# Test script for full registration and parcel handover flow
+# Run this script while the backend server is running on http://localhost:3000
+
+$baseUrl = "http://localhost:3000/v1"
+$headers = @{ "Content-Type" = "application/json" }
+
+Write-Host "=== Starting Full Flow Test ===" -ForegroundColor Cyan
+
+# Step 1: Register a new user (if registration endpoint exists)
+Write-Host "`n1. Testing registration..." -ForegroundColor Yellow
+try {
+    $registerBody = @{
+        phone = "09123456789"
+        role = "HUB_OWNER"
+        full_name = "Test Hub Owner"
+        password = "123456"
+    } | ConvertTo-Json
+    
+    $registerResponse = Invoke-RestMethod -Uri "$baseUrl/auth/register" -Method Post -Body $registerBody -ContentType "application/json"
+    Write-Host "Registration response: $($registerResponse | ConvertTo-Json)" -ForegroundColor Green
+} catch {
+    Write-Host "Registration failed (may not be implemented): $($_.Exception.Message)" -ForegroundColor Red
+}
+
+# Step 2: Login
+Write-Host "`n2. Testing login..." -ForegroundColor Yellow
+$loginBody = @{
+    phone = "09123456789"
+} | ConvertTo-Json
+
+try {
+    $loginResponse = Invoke-RestMethod -Uri "$baseUrl/auth/login?role=HUB_OWNER" -Method Post -Body $loginBody -ContentType "application/json"
+    Write-Host "Login response: $($loginResponse | ConvertTo-Json)" -ForegroundColor Green
+    
+    if ($loginResponse.data) {
+        $token = $loginResponse.data.token
+        $headers.Add("Authorization", "Bearer $token")
+        Write-Host "Token received: $token" -ForegroundColor Green
+    }
+} catch {
+    Write-Host "Login failed: $($_.Exception.Message)" -ForegroundColor Red
+    exit 1
+}
+
+# Step 3: Verify OTP
+Write-Host "`n3. Testing OTP verification..." -ForegroundColor Yellow
+$otpBody = @{
+    phone = "09123456789"
+    otp = "12345"
+} | ConvertTo-Json
+
+try {
+    $otpResponse = Invoke-RestMethod -Uri "$baseUrl/auth/verify-otp" -Method Post -Body $otpBody -ContentType "application/json"
+    Write-Host "OTP verification response: $($otpResponse | ConvertTo-Json)" -ForegroundColor Green
+    
+    if ($otpResponse.data) {
+        $token = $otpResponse.data.access_token
+        $headers["Authorization"] = "Bearer $token"
+        Write-Host "Token received after OTP: $token" -ForegroundColor Green
+    }
+} catch {
+    Write-Host "OTP verification failed: $($_.Exception.Message)" -ForegroundColor Red
+    exit 1
+}
+
+# Step 4: Create a hub
+Write-Host "`n4. Testing hub creation..." -ForegroundColor Yellow
+$hubBody = @{
+    name = "Test Hub"
+    address = "123 Test Street"
+    phone = "02112345678"
+    city = "Tehran"
+    district = "District 1"
+    latitude = 35.6892
+    longitude = 51.3890
+    max_capacity = 100
+    qr_code_hash = "qr-test-$([guid]::NewGuid().ToString().Substring(0,8))"
+} | ConvertTo-Json
+
+try {
+    $hubResponse = Invoke-RestMethod -Uri "$baseUrl/hubs" -Method Post -Body $hubBody -Headers $headers -ContentType "application/json"
+    Write-Host "Hub creation response: $($hubResponse | ConvertTo-Json)" -ForegroundColor Green
+    $hubId = $hubResponse.data.id
+    Write-Host "Hub created with ID: $hubId" -ForegroundColor Green
+} catch {
+    Write-Host "Hub creation failed: $($_.Exception.Message)" -ForegroundColor Red
+    exit 1
+}
+
+# Step 5: Create a parcel (as courier)
+Write-Host "`n5. Testing parcel creation..." -ForegroundColor Yellow
+$parcelBody = @{
+    tracking_code = "TEST-$([guid]::NewGuid().ToString().Substring(0,8))"
+    recipient_name = "Test Recipient"
+    recipient_phone = "09351234567"
+    recipient_address = "456 Test Ave"
+    base_post_cost = 50000
+    weight_kg = 2.5
+    description = "Test parcel"
+    proposed_hub_id = $hubId
+} | ConvertTo-Json
+
+try {
+    $parcelResponse = Invoke-RestMethod -Uri "$baseUrl/parcels" -Method Post -Body $parcelBody -Headers $headers -ContentType "application/json"
+    Write-Host "Parcel creation response: $($parcelResponse | ConvertTo-Json)" -ForegroundColor Green
+    $parcelId = $parcelResponse.data.id
+    $trackingCode = $parcelResponse.data.tracking_code
+    Write-Host "Parcel created with ID: $parcelId, Tracking Code: $trackingCode" -ForegroundColor Green
+} catch {
+    Write-Host "Parcel creation failed: $($_.Exception.Message)" -ForegroundColor Red
+    exit 1
+}
+
+# Step 6: Submit PUDO request
+Write-Host "`n6. Testing PUDO request submission..." -ForegroundColor Yellow
+try {
+    $pudoBody = @{
+        parcel_id = $parcelId
+    } | ConvertTo-Json
+    $pudoResponse = Invoke-RestMethod -Uri "$baseUrl/registration/request" -Method Post -Body $pudoBody -Headers $headers -ContentType "application/json"
+    Write-Host "PUDO request response: $($pudoResponse | ConvertTo-Json)" -ForegroundColor Green
+} catch {
+    Write-Host "PUDO request failed: $($_.Exception.Message)" -ForegroundColor Red
+}
+
+# Step 7: Accept PUDO request
+Write-Host "`n7. Testing PUDO request acceptance..." -ForegroundColor Yellow
+try {
+    $acceptBody = @{
+        parcel_id = $parcelId
+    } | ConvertTo-Json
+    $acceptResponse = Invoke-RestMethod -Uri "$baseUrl/registration/accept" -Method Post -Body $acceptBody -Headers $headers -ContentType "application/json"
+    Write-Host "PUDO acceptance response: $($acceptResponse | ConvertTo-Json)" -ForegroundColor Green
+} catch {
+    Write-Host "PUDO acceptance failed: $($_.Exception.Message)" -ForegroundColor Red
+}
+
+# Step 8: Schedule handover
+Write-Host "`n8. Testing handover scheduling..." -ForegroundColor Yellow
+$handoverDate = (Get-Date).AddDays(1).ToString("yyyy-MM-ddTHH:mm:ss")
+$handoverBody = @{
+    scheduledAt = $handoverDate
+} | ConvertTo-Json
+
+try {
+    $handoverResponse = Invoke-RestMethod -Uri "$baseUrl/parcels/$parcelId/schedule-handover" -Method Post -Body $handoverBody -Headers $headers -ContentType "application/json"
+    Write-Host "Handover scheduling response: $($handoverResponse | ConvertTo-Json)" -ForegroundColor Green
+} catch {
+    Write-Host "Handover scheduling failed: $($_.Exception.Message)" -ForegroundColor Red
+}
+
+# Step 9: Complete handover
+Write-Host "`n9. Testing handover completion..." -ForegroundColor Yellow
+try {
+    $completeHandoverResponse = Invoke-RestMethod -Uri "$baseUrl/parcels/$parcelId/complete-handover" -Method Post -Headers $headers -ContentType "application/json"
+    Write-Host "Handover completion response: $($completeHandoverResponse | ConvertTo-Json)" -ForegroundColor Green
+} catch {
+    Write-Host "Handover completion failed: $($_.Exception.Message)" -ForegroundColor Red
+}
+
+# Step 10: Receive parcel at hub
+Write-Host "`n10. Testing receive parcel at hub..." -ForegroundColor Yellow
+$receiveBody = @{
+    tracking_code = $trackingCode
+} | ConvertTo-Json
+
+try {
+    $receiveResponse = Invoke-RestMethod -Uri "$baseUrl/hubs/receive" -Method Post -Body $receiveBody -Headers $headers -ContentType "application/json"
+    Write-Host "Receive parcel response: $($receiveResponse | ConvertTo-Json)" -ForegroundColor Green
+} catch {
+    Write-Host "Receive parcel failed: $($_.Exception.Message)" -ForegroundColor Red
+}
+
+# Step 11: Deliver parcel (with OTP)
+Write-Host "`n11. Testing parcel delivery..." -ForegroundColor Yellow
+$deliverBody = @{
+    parcel_id = $parcelId
+    otp = "123456"
+} | ConvertTo-Json
+
+try {
+    $deliverResponse = Invoke-RestMethod -Uri "$baseUrl/hubs/deliver" -Method Post -Body $deliverBody -Headers $headers -ContentType "application/json"
+    Write-Host "Deliver parcel response: $($deliverResponse | ConvertTo-Json)" -ForegroundColor Green
+} catch {
+    Write-Host "Deliver parcel failed: $($_.Exception.Message)" -ForegroundColor Red
+}
+
+# Step 12: Get my parcels (hub owner)
+Write-Host "`n12. Testing get my parcels..." -ForegroundColor Yellow
+try {
+    $myParcelsResponse = Invoke-RestMethod -Uri "$baseUrl/hubs/my-parcels" -Method Get -Headers $headers -ContentType "application/json"
+    Write-Host "My parcels response: $($myParcelsResponse | ConvertTo-Json -Depth 5)" -ForegroundColor Green
+    
+    if ($myParcelsResponse.data) {
+        Write-Host "Found $($myParcelsResponse.data.Count) parcels for hub owner" -ForegroundColor Green
+        foreach ($parcel in $myParcelsResponse.data) {
+            Write-Host "  - Parcel: $($parcel.tracking_code), Status: $($parcel.status)" -ForegroundColor Cyan
+        }
+    }
+} catch {
+    Write-Host "Get my parcels failed: $($_.Exception.Message)" -ForegroundColor Red
+}
+
+Write-Host "`n=== Full Flow Test Completed ===" -ForegroundColor Cyan
