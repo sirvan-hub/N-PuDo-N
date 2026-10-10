@@ -8,6 +8,7 @@ const { HubEntity } = require('../dist/database/entities/hub.entity');
 const { InvoiceEntity } = require('../dist/database/entities/invoice.entity');
 const { CustodyTransferEntity, CustodyTransferStatus, CustodyTransferType } = require('../dist/database/entities/custody-transfer.entity');
 const { AuditLogEntity } = require('../dist/database/entities/audit-log.entity');
+const { NotificationEntity } = require('../dist/database/entities/notification.entity');
 const { UserRole } = require('../dist/common/interfaces/user-payload.interface');
 
 const dto = {
@@ -309,4 +310,61 @@ test('hub owner cannot release before payment and can release after invoice is p
   assert.equal(result.parcel.status, ParcelStatus.COLLECTED);
   assert.ok(result.parcel.collected_at instanceof Date);
   assert.equal(result.invoiceId, invoice.id);
+});
+
+test('recipient delivery code is atomically stored in the private in-app inbox with an audit event', async () => {
+  const parcel = {
+    id: 'parcel-code-1', tracking_code: 'TRACK-CODE-1', recipient_id: 'recipient-1',
+    recipient_phone: '+989120000001', current_hub_id: 'hub-1',
+    status: ParcelStatus.READY_FOR_CUSTOMER,
+  };
+  const invoice = { id: 'invoice-code-1', parcel_id: parcel.id, status: 'PAID' };
+  const saved = { transfers: [], notifications: [], audits: [] };
+  const manager = {
+    connection: { options: { type: 'sqlite' } },
+    getRepository(entity) {
+      if (entity === ParcelEntity) return { findOne: async () => parcel };
+      if (entity === CustodyTransferEntity) return {
+        findOne: async () => null,
+        update: async () => ({ affected: 0 }),
+        create: (value) => ({ ...value }),
+        save: async (value) => { value.id = 'transfer-code-1'; saved.transfers.push(value); return value; },
+      };
+      if (entity === NotificationEntity) return {
+        create: (value) => ({ ...value }),
+        save: async (value) => { saved.notifications.push(value); return value; },
+      };
+      if (entity === AuditLogEntity) return {
+        create: (value) => ({ ...value }),
+        save: async (value) => { saved.audits.push(value); return value; },
+      };
+      throw new Error('Unexpected repository');
+    },
+  };
+  const dataSource = {
+    getRepository(entity) {
+      if (entity === InvoiceEntity) return { findOne: async () => invoice };
+      throw new Error('Unexpected data-source repository');
+    },
+    transaction: async (work) => work(manager),
+  };
+  const service = new ParcelsService(
+    { findOne: async () => parcel }, { findOne: async () => null }, { findOne: async () => null },
+    dataSource, {}, {},
+  );
+  const result = await service.requestDeliveryCode(parcel.id, {
+    sub: 'recipient-1', phone: parcel.recipient_phone, role: UserRole.RECIPIENT, is_verified: true,
+  });
+  assert.equal(result.sent, true);
+  assert.equal(result.channel, 'IN_APP');
+  assert.equal(saved.transfers.length, 1);
+  assert.equal(saved.notifications.length, 1);
+  assert.equal(saved.audits.length, 1);
+  assert.equal(saved.audits[0].action, 'DELIVERY_CODE_NOTIFIED_IN_APP');
+  assert.equal(saved.audits[0].metadata.channel, 'IN_APP');
+  const match = saved.notifications[0].body.match(/ برابر (\\d{6}) است/);
+  assert.ok(match, 'in-app notification should contain a six-digit code');
+  const transfer = saved.transfers[0];
+  assert.equal(transfer.code_hash, createHash('sha256').update(`${transfer.code_salt}:${match[1]}`).digest('hex'));
+  assert.equal(JSON.stringify(saved.audits).includes(match[1]), false, 'audit logs must not contain the plaintext code');
 });
