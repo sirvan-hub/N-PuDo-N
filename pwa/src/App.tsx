@@ -4,6 +4,7 @@ type UserRole = 'COURIER' | 'HUB_OWNER' | 'RECIPIENT' | 'ADMIN' | 'SUPER_ADMIN' 
 type AuthUser = { sub?: string; id?: string; username?: string; phone?: string; role: UserRole; is_verified?: boolean };
 type AuthResponse = { access_token: string; user: AuthUser };
 type AppNotification = { id: string; category: string; title: string; body: string; reference_type?: string | null; reference_id?: string | null; expires_at?: string | null; read_at?: string | null; created_at: string };
+type PayoutRequest = { requestId: string; amount: number; status: string; createdAt?: string; reviewedAt?: string | null; reviewNote?: string | null; transferReference?: string | null };
 
 const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\/$/, '');
 
@@ -52,6 +53,17 @@ export default function App() {
 
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
   const [workspaceMessage, setWorkspaceMessage] = useState('');
+  const [payoutFrequency, setPayoutFrequency] = useState<'WEEKLY' | 'MONTHLY'>('MONTHLY');
+  const [payoutDestinationToken, setPayoutDestinationToken] = useState('');
+  const [payoutDestinationLast4, setPayoutDestinationLast4] = useState('');
+  const [payoutDestinationVerified, setPayoutDestinationVerified] = useState(false);
+  const [payoutDestinationConfigured, setPayoutDestinationConfigured] = useState(false);
+  const [payoutAmount, setPayoutAmount] = useState('');
+  const [payoutHubId, setPayoutHubId] = useState('');
+  const [payoutHistory, setPayoutHistory] = useState<PayoutRequest[]>([]);
+  const [payoutMessage, setPayoutMessage] = useState('');
+  const [payoutError, setPayoutError] = useState('');
+  const [payoutLoading, setPayoutLoading] = useState(false);
 
   useEffect(() => {
     if (!session || !apiBase) {
@@ -94,6 +106,147 @@ export default function App() {
       clearInterval(refreshTimer);
     };
   }, [session]);
+
+
+  useEffect(() => {
+    if (!session || !apiBase || !['COURIER', 'HUB_OWNER'].includes(session.user.role)) return;
+    let cancelled = false;
+    const loadPreference = async () => {
+      try {
+        const response = await fetch(`${apiBase}/settlements/me/payout-preference`, {
+          headers: { Authorization: `Bearer ${session.token}` },
+        });
+        const body: unknown = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(getApiError(body, 'دریافت تنظیمات تسویه ناموفق بود.'));
+        const data = body as { frequency?: 'WEEKLY' | 'MONTHLY'; destinationVerified?: boolean; destinationConfigured?: boolean; destinationLast4?: string | null };
+        if (cancelled) return;
+        setPayoutFrequency(data.frequency === 'WEEKLY' ? 'WEEKLY' : 'MONTHLY');
+        setPayoutDestinationVerified(Boolean(data.destinationVerified));
+        setPayoutDestinationConfigured(Boolean(data.destinationConfigured));
+        setPayoutDestinationLast4(data.destinationLast4 ?? '');
+      } catch (cause) {
+        if (!cancelled) setPayoutError(cause instanceof Error ? cause.message : 'دریافت تنظیمات تسویه ناموفق بود.');
+      }
+    };
+    const loadCourierHistory = async () => {
+      if (session.user.role !== 'COURIER') return;
+      try {
+        const response = await fetch(`${apiBase}/settlements/couriers/me/payout-requests`, {
+          headers: { Authorization: `Bearer ${session.token}` },
+        });
+        const body: unknown = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(getApiError(body, 'دریافت تاریخچه تسویه ناموفق بود.'));
+        if (!cancelled && Array.isArray(body)) setPayoutHistory(body as PayoutRequest[]);
+      } catch (cause) {
+        if (!cancelled) setPayoutError(cause instanceof Error ? cause.message : 'دریافت تاریخچه تسویه ناموفق بود.');
+      }
+    };
+    void loadPreference();
+    void loadCourierHistory();
+    return () => { cancelled = true; };
+  }, [session]);
+
+  async function savePayoutPreference(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!session || !apiBase) return;
+    setPayoutLoading(true);
+    setPayoutError('');
+    setPayoutMessage('');
+    try {
+      const body: Record<string, unknown> = { frequency: payoutFrequency };
+      if (payoutDestinationToken.trim() || payoutDestinationLast4.trim()) {
+        if (!payoutDestinationToken.trim() || !/^\d{4}$/.test(payoutDestinationLast4.trim())) {
+          throw new Error('برای تنظیم مقصد، شناسه مرجع و چهار رقم پایانی را کامل وارد کنید.');
+        }
+        body.destinationToken = payoutDestinationToken.trim();
+        body.destinationLast4 = payoutDestinationLast4.trim();
+      }
+      const response = await fetch(`${apiBase}/settlements/me/payout-preference`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${session.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const result: unknown = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(getApiError(result, 'ذخیره تنظیمات تسویه ناموفق بود.'));
+      const data = result as { destinationVerified?: boolean; destinationConfigured?: boolean; destinationLast4?: string | null };
+      setPayoutDestinationVerified(Boolean(data.destinationVerified));
+      setPayoutDestinationConfigured(Boolean(data.destinationConfigured));
+      setPayoutDestinationLast4(data.destinationLast4 ?? '');
+      setPayoutDestinationToken('');
+      setPayoutMessage('تنظیمات تسویه ذخیره شد. تغییر مقصد، تأیید قبلی را باطل می‌کند.');
+    } catch (cause) {
+      setPayoutError(cause instanceof Error ? cause.message : 'ذخیره تنظیمات تسویه ناموفق بود.');
+    } finally {
+      setPayoutLoading(false);
+    }
+  }
+
+  async function loadPayoutHistory() {
+    if (!session || !apiBase) return;
+    const courier = session.user.role === 'COURIER';
+    if (!courier && !payoutHubId.trim()) {
+      setPayoutError('برای مشاهده تاریخچه هاب، شناسه هاب را وارد کنید.');
+      return;
+    }
+    setPayoutLoading(true);
+    setPayoutError('');
+    try {
+      const requestPath = courier
+        ? '/settlements/couriers/me/payout-requests'
+        : `/settlements/hubs/${encodeURIComponent(payoutHubId.trim())}/payout-requests`;
+      const response = await fetch(`${apiBase}${requestPath}`, { headers: { Authorization: `Bearer ${session.token}` } });
+      const body: unknown = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(getApiError(body, 'دریافت تاریخچه تسویه ناموفق بود.'));
+      if (!Array.isArray(body)) throw new Error('ساختار تاریخچه تسویه معتبر نیست.');
+      setPayoutHistory(body as PayoutRequest[]);
+    } catch (cause) {
+      setPayoutError(cause instanceof Error ? cause.message : 'دریافت تاریخچه تسویه ناموفق بود.');
+    } finally {
+      setPayoutLoading(false);
+    }
+  }
+
+  async function requestPayout(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!session || !apiBase) return;
+    if (!payoutDestinationVerified) {
+      setPayoutError('تا زمانی که مدیر سیستم مقصد تسویه را بررسی و تأیید نکرده باشد، درخواست تسویه مجاز نیست.');
+      return;
+    }
+    const amount = Number(payoutAmount);
+    if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 2147483647) {
+      setPayoutError('مبلغ تسویه باید عدد صحیح مثبت و به تومان باشد.');
+      return;
+    }
+    const courier = session.user.role === 'COURIER';
+    if (!courier && !payoutHubId.trim()) {
+      setPayoutError('برای درخواست تسویه هاب، شناسه هاب را وارد کنید.');
+      return;
+    }
+    setPayoutLoading(true);
+    setPayoutError('');
+    setPayoutMessage('');
+    try {
+      const requestPath = courier
+        ? '/settlements/couriers/me/payout-requests'
+        : `/settlements/hubs/${encodeURIComponent(payoutHubId.trim())}/payout-requests`;
+      const idempotencyKey = globalThis.crypto?.randomUUID?.() ?? `payout-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const response = await fetch(`${apiBase}${requestPath}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.token}`, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify({ amount }),
+      });
+      const body: unknown = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(getApiError(body, 'ثبت درخواست تسویه ناموفق بود.'));
+      setPayoutAmount('');
+      setPayoutMessage('درخواست ثبت شد و مبلغ از موجودی قابل‌برداشت به موجودی مسدودشده منتقل شد. این ثبت به‌معنای انتقال بانکی نیست.');
+      await loadPayoutHistory();
+    } catch (cause) {
+      setPayoutError(cause instanceof Error ? cause.message : 'ثبت درخواست تسویه ناموفق بود.');
+    } finally {
+      setPayoutLoading(false);
+    }
+  }
 
   async function markNotificationRead(notificationId: string) {
     if (!session || !apiBase) return;
