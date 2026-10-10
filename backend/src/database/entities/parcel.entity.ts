@@ -20,8 +20,14 @@ export class ParcelEntity {
   @Column('int')
   base_post_cost: number;
 
-  @Column({ nullable: true })  // ← مهم: اگر هاب نداریم، nullable باشد
+  @Column({ type: 'uuid', nullable: true })
   proposed_hub_id: string;
+
+  @Column({ type: 'uuid', nullable: true })
+  recipient_id?: string;
+
+  @Column({ type: 'uuid', nullable: true })
+  current_hub_id?: string;
 
   @Column({ nullable: true })  // ← مهم: برای تست
   courier_id: string;
