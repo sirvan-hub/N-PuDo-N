@@ -4,7 +4,7 @@ import { DataSource, Repository } from 'typeorm';
 import { ParcelEntity } from '../../database/entities/parcel.entity';
 import { HubEntity } from '../../database/entities/hub.entity';
 import { UserEntity } from '../../database/entities/user.entity';
-import { InvoiceEntity } from '../../database/entities/invoice.entity';
+import { InvoiceEntity, PaymentStatus } from '../../database/entities/invoice.entity';
 import { UserPayload, UserRole } from '../../common/interfaces/user-payload.interface';
 import { ParcelStatus, canTransitionParcel } from './parcel-state-machine';
 import { PricingService } from '../pricing/pricing.service';
@@ -183,6 +183,51 @@ export class ParcelsService {
       }
       const invoice = await this.invoicesService.create(parcel, pricing, manager);
       return { parcel, invoice, alreadyIssued: false };
+    });
+  }
+
+  /**
+   * Physical release is a hub-owner action and is blocked until the linked invoice
+   * has been reconciled as PAID by the authorized payment-reconciliation workflow.
+   */
+  async confirmCustomerRelease(parcelId: string, actor: UserPayload) {
+    if (actor.role !== UserRole.HUB_OWNER) {
+      throw new ForbiddenException('Only the assigned hub owner can release a parcel');
+    }
+    return this.dataSource.transaction(async (manager) => {
+      const parcels = manager.getRepository(ParcelEntity);
+      const parcel = await parcels.findOne({ where: { id: parcelId }, lock: { mode: 'pessimistic_write' } });
+      if (!parcel) throw new NotFoundException('Parcel not found');
+      const hub = parcel.current_hub_id
+        ? await manager.getRepository(HubEntity).findOne({ where: { id: parcel.current_hub_id, owner_id: actor.sub } })
+        : null;
+      if (!hub) throw new ForbiddenException('Parcel is not stored at a hub owned by this user');
+
+      if (parcel.status === ParcelStatus.COLLECTED && parcel.collected_at) {
+        return { parcel, alreadyReleased: true };
+      }
+      if (parcel.status !== ParcelStatus.READY_FOR_CUSTOMER) {
+        throw new ConflictException('Parcel must be ready for customer collection before release');
+      }
+      const invoice = await manager.getRepository(InvoiceEntity).findOne({ where: { parcel_id: parcel.id } });
+      if (!invoice) throw new ConflictException('Parcel has no invoice; customer collection cannot be released');
+      if (invoice.status !== PaymentStatus.PAID) {
+        throw new ConflictException('Invoice must be PAID before physical parcel release');
+      }
+
+      let nextStatus = parcel.status;
+      for (const status of [ParcelStatus.CUSTOMER_COLLECTION, ParcelStatus.COLLECTED]) {
+        if (!canTransitionParcel(nextStatus, status)) {
+          throw new ConflictException(`Invalid release transition from ${nextStatus} to ${status}`);
+        }
+        nextStatus = status;
+      }
+      const now = new Date();
+      parcel.status = ParcelStatus.COLLECTED;
+      parcel.collected_at = now;
+      parcel.updated_at = now;
+      await parcels.save(parcel);
+      return { parcel, alreadyReleased: false, invoiceId: invoice.id, releasedAt: now.toISOString() };
     });
   }
 
