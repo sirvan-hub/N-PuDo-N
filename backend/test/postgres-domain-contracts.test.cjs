@@ -206,6 +206,76 @@ test('wallet credit is atomic and concurrent retries return the same result', as
   }
 });
 
+test('wallet bucket mutations are atomic, idempotent, and prevent overdrafts', async (t) => {
+  if (!isPostgres) {
+    t.skip('Set DB_TYPE=postgres to exercise PostgreSQL wallet bucket mutations');
+    return;
+  }
+
+  const dataSource = require('../dist/database/data-source').default;
+  const { WalletsService } = require('../dist/modules/wallets/wallets.service');
+  await dataSource.initialize();
+
+  try {
+    const suffix = Math.random().toString(16).slice(2, 10);
+    const rows = await dataSource.query(
+      'INSERT INTO users (phone, role) VALUES ($1, $2) RETURNING id',
+      [`+1666${suffix}`, 'HUB_OWNER'],
+    );
+    const userId = rows[0].id;
+    const walletRows = await dataSource.query(
+      'INSERT INTO wallets (user_id, balance, pending_balance, blocked_balance, total_earned) VALUES ($1, 1000, 300, 200, 0) RETURNING id',
+      [userId],
+    );
+    const walletId = walletRows[0].id;
+    const service = new WalletsService(dataSource);
+
+    const holdKey = `hold-${suffix}`;
+    const holds = await Promise.all([
+      service.hold(userId, 200, holdKey),
+      service.hold(userId, 200, holdKey),
+      service.hold(userId, 200, holdKey),
+    ]);
+    assert.equal(holds[0].balance, 800);
+    assert.equal(holds[0].blockedBalance, 400);
+    assert.equal(holds[0].ledgerTransactionIds.length, 2);
+    assert.deepEqual(holds[1], holds[0]);
+    assert.deepEqual(holds[2], holds[0]);
+
+    await service.releaseHold(userId, 50, `release-hold-${suffix}`);
+    await service.creditPending(userId, 400, `pending-credit-${suffix}`);
+    await service.releasePending(userId, 100, `release-pending-${suffix}`);
+    const finalResult = await service.debit(userId, 25, `debit-${suffix}');
+
+    assert.equal(finalResult.balance, 925);
+    assert.equal(finalResult.pendingBalance, 600);
+    assert.equal(finalResult.blockedBalance, 350);
+    assert.equal(finalResult.totalEarned, 0);
+
+    await assert.rejects(
+      service.debit(userId, 926, `overdraft-${suffix}`),
+      (error) => error && error.getStatus && error.getStatus() === 400,
+    );
+
+    const persisted = await dataSource.query(
+      'SELECT balance, pending_balance, blocked_balance, total_earned FROM wallets WHERE id = $1',
+      [walletId],
+    );
+    assert.equal(Number(persisted[0].balance), 925);
+    assert.equal(Number(persisted[0].pending_balance), 600);
+    assert.equal(Number(persisted[0].blocked_balance), 350);
+    assert.equal(Number(persisted[0].total_earned), 0);
+
+    const ledger = await dataSource.query(
+      'SELECT count(*)::int AS count FROM wallet_transactions WHERE wallet_id = $1',
+      [walletId],
+    );
+    assert.equal(ledger[0].count, 8);
+  } finally {
+    await dataSource.destroy();
+  }
+});
+
 test('additive migration backfills nonzero existing wallet balances as opening ledger entries', async (t) => {
   if (!isPostgres) {
     t.skip('Set DB_TYPE=postgres to run migration rehearsal');
