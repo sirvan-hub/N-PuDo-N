@@ -380,8 +380,8 @@ export class ParcelsService {
     if (actor.role !== UserRole.HUB_OWNER) {
       throw new ForbiddenException('Only the assigned hub owner can release a parcel');
     }
-    if (!/^\\d{4,6}$/.test(String(code || ''))) throw new BadRequestException('A 4-6 digit delivery code is required');
-    if (nationalId && !/^\\d{10}$/.test(nationalId)) throw new BadRequestException('National ID must contain 10 digits');
+    if (!/^\d{4,6}$/.test(String(code || ''))) throw new BadRequestException('A 4-6 digit delivery code is required');
+    if (nationalId && !/^\d{10}$/.test(nationalId)) throw new BadRequestException('National ID must contain 10 digits');
 
     const result = await this.dataSource.transaction(async (manager) => {
       const parcels = manager.getRepository(ParcelEntity);
