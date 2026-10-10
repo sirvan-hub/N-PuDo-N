@@ -96,9 +96,13 @@ export class SettlementsService {
         completed_at: now,
       }));
 
+      const postgres = manager.connection.options.type === 'postgres';
+      const auditPlaceholders = postgres
+        ? '$1, $2, \'invoice\', $3, \'INVOICE_PAYMENT_RECONCILED\', $4, $5, $6, $7, $8'
+        : '?, ?, \'invoice\', ?, \'INVOICE_PAYMENT_RECONCILED\', ?, ?, ?, ?, ?';
       await manager.query(
         `INSERT INTO audit_logs (actor_id, actor_role, entity_type, entity_id, action, old_state, new_state, transaction_id, correlation_id, metadata)
-         VALUES ($1, $2, 'invoice', $3, 'INVOICE_PAYMENT_RECONCILED', $4, $5, $6, $7, $8)`,
+         VALUES (${auditPlaceholders})`,
         [
           actor.sub, actor.role, invoice.id,
           JSON.stringify({ status: PaymentStatus.PENDING }),
