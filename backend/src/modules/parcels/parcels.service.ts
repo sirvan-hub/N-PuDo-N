@@ -176,6 +176,7 @@ export class ParcelsService {
 
       const pricing = await this.pricingService.calculateWithActiveTariff(parcel, new Date());
       if (pricing.isExpired) {
+        parcel.status = ParcelStatus.STORED_AT_HUB;
         parcel.expired_at = parcel.expired_at ?? new Date();
         parcel.updated_at = new Date();
         await parcels.save(parcel);
