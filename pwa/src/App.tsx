@@ -699,6 +699,35 @@ export default function App() {
           )}
           {normalizedRole === 'RECIPIENT' && workspaceMessage && <p className="feedback notice" role="status">{workspaceMessage}</p>}
 
+          {normalizedRole === 'ADMIN' && (
+            <section className="workflow-card payout-card" aria-labelledby="admin-payout-heading">
+              <span className="eyebrow">ADMIN SETTLEMENT REVIEW</span>
+              <h2 id="admin-payout-heading">مدیریت تسویه سفیر و هاب</h2>
+              <p className="muted">مقصد را فقط پس از بررسی مستقل خارج از سامانه تأیید کنید. تأیید درخواست به‌معنای انتقال بانکی نیست.</p>
+              <form onSubmit={verifyPayoutDestination} className="invitation-form">
+                <label htmlFor="destinationVerifyUserId">شناسه کاربر سفیر یا مالک هاب</label>
+                <input id="destinationVerifyUserId" dir="ltr" value={destinationVerifyUserId} onChange={(event) => setDestinationVerifyUserId(event.target.value.trim())} required />
+                <label htmlFor="destinationVerificationReference">مرجع بررسی خارجی</label>
+                <input id="destinationVerificationReference" dir="ltr" value={destinationVerificationReference} onChange={(event) => setDestinationVerificationReference(event.target.value.trim())} maxLength={160} required />
+                <button className="primary-button" type="submit" disabled={payoutLoading}>{payoutLoading ? 'در حال ثبت…' : 'ثبت تأیید دستی مقصد'}</button>
+              </form>
+              {adminPayoutQueue.length === 0 && <p className="notification-empty">در حال حاضر درخواست تسویه در انتظار بررسی وجود ندارد.</p>}
+              {adminPayoutQueue.map((item) => <article className="payout-history-item" key={item.requestId}>
+                <strong>{item.amount.toLocaleString('fa-IR')} تومان · {item.beneficiaryType === 'COURIER' ? 'سفیر' : 'هاب'}</strong>
+                <span>{item.status}</span>
+                <small dir="ltr">درخواست: {item.requestId}</small>
+                <small dir="ltr">کاربر: {item.courierId ?? item.requestedBy ?? '—'}{item.hubId ? ' · هاب: ' + item.hubId : ''}</small>
+                <div className="invitation-actions">
+                  <button className="primary-button" type="button" disabled={payoutLoading} onClick={() => void reviewPayoutRequest(item.requestId, 'APPROVE')}>تأیید درخواست</button>
+                  <button className="outline-button" type="button" disabled={payoutLoading} onClick={() => void reviewPayoutRequest(item.requestId, 'REJECT')}>رد درخواست</button>
+                </div>
+              </article>)}
+              {payoutError && <p className="feedback error" role="alert">{payoutError}</p>}
+              {payoutMessage && <p className="feedback notice" role="status">{payoutMessage}</p>}
+            </section>
+          )}
+
+
           {(normalizedRole === 'COURIER' || normalizedRole === 'HUB_OWNER') && (
             <section className="workflow-card payout-card" aria-labelledby="payout-heading">
               <span className="eyebrow">WALLET & SETTLEMENT</span>
