@@ -180,6 +180,7 @@ test('recipient PUDO request selects an active hub and advances the state machin
   const parcel = {
     id: 'parcel-request-1', recipient_id: 'recipient-1', recipient_phone: dto.recipient_phone,
     proposed_hub_id: null, current_hub_id: null, delivered_to_hub_at: null,
+    label_image_ref: 'pudo-evidence://parcels/parcel-request-1/label_image/label-001',
     base_post_cost: 18000, status: ParcelStatus.DELIVERY_ATTEMPT, courier_id: 'courier-1',
   };
   const hub = { id: 'hub-1', owner_id: 'owner-1', is_active: true, is_temporarily_closed: false };
