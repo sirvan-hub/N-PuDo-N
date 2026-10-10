@@ -183,8 +183,7 @@ export class ParcelsService {
         return parcel;
       });
     }
-    const parcel = this.repo.create(parcelData);
-    return this.repo.save(parcel);
+    throw new BadRequestException('Transactional persistence is required for consent-gated parcel registration');
   }
 
   async requestPudo(parcelId: string, hubId: string, actor: UserPayload) {
