@@ -34,11 +34,20 @@ export class ParcelsController {
     return this.parcelsService.requestPudo(id, hubId, user);
   }
 
+  @Post(':id/request-collection')
+  @Roles(UserRole.RECIPIENT)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Recipient requests collection; issue storage invoice using elapsed hub custody time' })
+  @ApiResponse({ status: 200, description: 'Invoice issued or existing invoice returned; parcel is not physically released' })
+  async requestCustomerCollection(@Param('id') id: string, @CurrentUser() user: UserPayload) {
+    return this.parcelsService.requestCustomerCollection(id, user);
+  }
+
   @Post(':id/confirm-hub-receipt')
   @Roles(UserRole.HUB_OWNER)
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Confirm physical receipt of a parcel at the assigned hub and create its invoice snapshot' })
-  @ApiResponse({ status: 200, description: 'Hub receipt confirmed and invoice snapshot created' })
+  @ApiOperation({ summary: 'Confirm physical receipt of a parcel at the assigned hub; invoice is deferred until the recipient requests collection' })
+  @ApiResponse({ status: 200, description: 'Hub custody recorded; invoice not yet issued' })
   async confirmHubReceipt(@Param('id') id: string, @CurrentUser() user: UserPayload) {
     return this.parcelsService.confirmHubReceipt(id, user);
   }
