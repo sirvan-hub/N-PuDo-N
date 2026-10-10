@@ -125,6 +125,8 @@ test('PostgreSQL serializes concurrent payment reconciliation and parcel release
     assert.equal(await dataSource.getRepository(ParcelEntity).countBy({ id: parcel.id, status: ParcelStatus.COLLECTED }), 1);
   } finally {
     if (invoice) {
+      await dataSource.getRepository(RevenueAllocationEntity).delete({ charge_id: invoice.id }).catch(() => {});
+      await dataSource.getRepository(WalletTransactionEntity).delete({ reference_type: 'invoice', reference_id: invoice.id }).catch(() => {});
       await dataSource.getRepository(SettlementTransactionEntity).delete({ invoice_id: invoice.id }).catch(() => {});
       await dataSource.getRepository(InvoiceEntity).delete({ id: invoice.id }).catch(() => {});
     }
@@ -133,7 +135,9 @@ test('PostgreSQL serializes concurrent payment reconciliation and parcel release
       await dataSource.getRepository(ParcelEntity).delete({ id: parcel.id }).catch(() => {});
     }
     if (hub) await dataSource.getRepository(HubEntity).delete({ id: hub.id }).catch(() => {});
-    for (const user of [owner, recipient, admin]) {
+    for (const user of [owner, courier]) if (user) await dataSource.getRepository(WalletEntity).delete({ user_id: user.id }).catch(() => {});
+    await dataSource.getRepository(IdempotencyRecordEntity).delete({ actor_scope: invoice ? `revenue:invoice:${invoice.id}` : 'unused' }).catch(() => {});
+    for (const user of [owner, recipient, admin, courier]) {
       if (user) await dataSource.getRepository(UserEntity).delete({ id: user.id }).catch(() => {});
     }
     await dataSource.getRepository(IdempotencyRecordEntity).delete([
