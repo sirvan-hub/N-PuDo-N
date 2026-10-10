@@ -148,6 +148,7 @@ test('custody is finalized only when courier and hub evidence both exist', async
       if (entity === HubEntity) return { findOne: async () => hub };
       if (entity === NetworkEntryChargeEntity) return { findOne: async () => ({ status: NetworkEntryChargeStatus.VERIFIED }) };
       if (entity === RevenueAllocationEntity) return { findOne: async () => ({ id: 'already-allocated' }) };
+      if (entity === NotificationEntity) return { create: (value) => value, save: async (value) => value };
       if (entity === AuditLogEntity) return { create: (value) => value, save: async (value) => value };
       throw new Error('Unexpected repository');
     },
