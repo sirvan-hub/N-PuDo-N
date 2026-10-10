@@ -16,9 +16,9 @@ export class InvoiceEntity {
   @Column({ type: 'decimal', precision: 5, scale: 2 }) fee_percentage: number;
   @Column({ type: 'integer' }) calculated_fee: number;
   @Column({ type: 'integer' }) total_amount: number;
-  @Column({ type: 'simple-enum', enum: PaymentStatus, default: PaymentStatus.PENDING }) status: PaymentStatus;
+  @Column({ type: 'varchar', length: 20, default: PaymentStatus.PENDING }) status: PaymentStatus;
   @Column({ type: 'integer' }) hub_owner_share: number;
   @Column({ type: 'integer' }) platform_fee: number;
-  @CreateDateColumn({ type: 'datetime' }) created_at: Date;
-  @UpdateDateColumn({ type: 'datetime' }) updated_at: Date;
+  @CreateDateColumn({ type: 'timestamptz' }) created_at: Date;
+  @UpdateDateColumn({ type: 'timestamptz' }) updated_at: Date;
 }
