@@ -3,6 +3,7 @@ import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { createHash, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 import { ParcelEntity } from '../../database/entities/parcel.entity';
+import { ParcelInvitationEntity, ParcelInvitationStatus } from '../../database/entities/parcel-invitation.entity';
 import { AuditLogEntity } from '../../database/entities/audit-log.entity';
 import { NotificationEntity } from '../../database/entities/notification.entity';
 import { HubEntity } from '../../database/entities/hub.entity';
@@ -27,6 +28,96 @@ export class ParcelsService {
     private readonly invoicesService: InvoicesService,
   ) {}
 
+  async createInvitation(recipientPhone: string, actor: UserPayload) {
+    if (actor.role !== UserRole.COURIER) throw new ForbiddenException('Only a courier can invite a recipient');
+    if (!recipientPhone || typeof recipientPhone !== 'string') throw new BadRequestException('recipient_phone is required');
+
+    const recipient = await this.users.findOne({ where: { phone: recipientPhone } });
+    if (!recipient || recipient.role !== UserRole.RECIPIENT || !recipient.is_active) {
+      throw new BadRequestException('Recipient must have an active registered recipient account');
+    }
+
+    return this.dataSource.transaction(async (manager) => {
+      const invitations = manager.getRepository(ParcelInvitationEntity);
+      const invitation = await invitations.save(invitations.create({
+        courier_id: actor.sub,
+        recipient_id: recipient.id,
+        recipient_phone: recipient.phone,
+        status: ParcelInvitationStatus.PENDING,
+      }));
+      await manager.getRepository(NotificationEntity).save(manager.getRepository(NotificationEntity).create({
+        user_id: recipient.id,
+        category: 'PARCEL_INVITATION',
+        title: 'دعوت تحویل مرسوله با Pudo-N',
+        body: 'سفیر پست پیشنهاد داده مرسوله شما از طریق شبکه هاب‌های Pudo-N تحویل شود. برای ادامه، دعوت را تأیید یا رد کنید.',
+        reference_type: 'PARCEL_INVITATION',
+        reference_id: invitation.id,
+      }));
+      await manager.getRepository(AuditLogEntity).save(manager.getRepository(AuditLogEntity).create({
+        actor_id: actor.sub,
+        actor_role: UserRole.COURIER,
+        entity_type: 'parcel_invitation',
+        entity_id: invitation.id,
+        action: 'PARCEL_INVITATION_CREATED',
+        old_state: null,
+        new_state: { status: invitation.status, recipientId: recipient.id },
+        transaction_id: invitation.id,
+        correlation_id: `parcel-invitation:${invitation.id}`,
+        metadata: { recipientPhone: recipient.phone },
+      }));
+      return invitation;
+    });
+  }
+
+  async respondToInvitation(invitationId: string, accepted: boolean, actor: UserPayload) {
+    if (actor.role !== UserRole.RECIPIENT) throw new ForbiddenException('Only a recipient can respond to an invitation');
+    if (typeof accepted !== 'boolean') throw new BadRequestException('accepted must be a boolean');
+
+    return this.dataSource.transaction(async (manager) => {
+      const invitations = manager.getRepository(ParcelInvitationEntity);
+      const invitation = await invitations.findOne({ where: { id: invitationId } });
+      if (!invitation) throw new NotFoundException('Invitation not found');
+      if (invitation.recipient_id !== actor.sub && invitation.recipient_phone !== actor.phone) {
+        throw new ForbiddenException('Invitation belongs to another recipient');
+      }
+      if (invitation.status !== ParcelInvitationStatus.PENDING) {
+        throw new ConflictException('Invitation has already been answered or used');
+      }
+
+      const now = new Date();
+      const nextStatus = accepted ? ParcelInvitationStatus.ACCEPTED : ParcelInvitationStatus.REJECTED;
+      const update = await invitations.update(
+        { id: invitation.id, status: ParcelInvitationStatus.PENDING },
+        { status: nextStatus, responded_at: now, accepted_at: accepted ? now : null },
+      );
+      if (!update.affected) throw new ConflictException('Invitation response was already recorded');
+
+      await manager.getRepository(NotificationEntity).save(manager.getRepository(NotificationEntity).create({
+        user_id: invitation.courier_id,
+        category: 'PARCEL_INVITATION_RESPONSE',
+        title: accepted ? 'دعوت Pudo-N تأیید شد' : 'دعوت Pudo-N رد شد',
+        body: accepted
+          ? 'گیرنده با استفاده از شبکه Pudo-N موافقت کرده است. اکنون می‌توانید اطلاعات مرسوله را ثبت کنید.'
+          : 'گیرنده پیشنهاد استفاده از شبکه Pudo-N را رد کرده است؛ مرسوله نباید در شبکه ثبت شود.',
+        reference_type: 'PARCEL_INVITATION',
+        reference_id: invitation.id,
+      }));
+      await manager.getRepository(AuditLogEntity).save(manager.getRepository(AuditLogEntity).create({
+        actor_id: actor.sub,
+        actor_role: UserRole.RECIPIENT,
+        entity_type: 'parcel_invitation',
+        entity_id: invitation.id,
+        action: accepted ? 'PARCEL_INVITATION_ACCEPTED' : 'PARCEL_INVITATION_REJECTED',
+        old_state: { status: ParcelInvitationStatus.PENDING },
+        new_state: { status: nextStatus, respondedAt: now.toISOString() },
+        transaction_id: invitation.id,
+        correlation_id: `parcel-invitation:${invitation.id}`,
+        metadata: {},
+      }));
+      return { id: invitation.id, status: nextStatus, responded_at: now, accepted_at: accepted ? now : null };
+    });
+  }
+
   async create(dto: any, courierId: string) {
     const recipient = await this.users.findOne({ where: { phone: dto.recipient_phone } });
     if (!recipient) throw new BadRequestException('Parcel recipient must have a registered user account');
@@ -36,13 +127,15 @@ export class ParcelsService {
       throw new BadRequestException('Proposed hub does not exist or is not accepting parcels');
     }
 
+    if (!dto.invitation_id) throw new BadRequestException('An accepted recipient invitation is required before parcel registration');
+
     const packageSize = dto.package_size || 'MEDIUM';
     const basePrice = await this.pricingService.resolveBaseCost(packageSize, new Date());
     const parcelData = {
       ...dto,
       package_size: packageSize,
       base_post_cost: basePrice.basePostCost,
-      tariff_version_id: basePrice.tariffVersionId,
+      invitation_id: dto.invitation_id,\n      tariff_version_id: basePrice.tariffVersionId,
       recipient_id: recipient.id,
       current_hub_id: null,
       courier_id: courierId,
@@ -52,8 +145,22 @@ export class ParcelsService {
     };
     if (this.dataSource?.transaction) {
       return this.dataSource.transaction(async (manager) => {
+        const invitations = manager.getRepository(ParcelInvitationEntity);
+        const invitation = await invitations.findOne({ where: { id: dto.invitation_id } });
+        if (!invitation) throw new BadRequestException('Accepted recipient invitation was not found');
+        if (invitation.status !== ParcelInvitationStatus.ACCEPTED) {
+          throw new ConflictException('Recipient must accept the invitation before parcel registration');
+        }
+        if (invitation.courier_id !== courierId || invitation.recipient_id !== recipient.id || invitation.recipient_phone !== recipient.phone) {
+          throw new ForbiddenException('Invitation does not match this courier and recipient');
+        }
         const parcels = manager.getRepository(ParcelEntity);
         const parcel = await parcels.save(parcels.create(parcelData as Partial<ParcelEntity>));
+        const consumed = await invitations.update(
+          { id: invitation.id, status: ParcelInvitationStatus.ACCEPTED },
+          { status: ParcelInvitationStatus.USED, responded_at: invitation.responded_at || new Date(), parcel_id: parcel.id },
+        );
+        if (!consumed.affected) throw new ConflictException('Invitation has already been used for another parcel');
         await manager.getRepository(AuditLogEntity).save(manager.getRepository(AuditLogEntity).create({
           actor_id: courierId,
           actor_role: UserRole.COURIER,
