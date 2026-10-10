@@ -1,10 +1,32 @@
-import { IsString, IsInt, Min, IsOptional, IsNumber, IsIn, IsUUID } from 'class-validator';
+import { IsString, IsInt, Min, IsOptional, IsNumber, IsIn, IsUUID, Length } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateParcelDto {
   @ApiProperty({ description: 'ID of the recipient invitation that was explicitly accepted' })
   @IsUUID()
   invitation_id: string;
+
+  @ApiProperty({ example: 'BC1234567890', description: 'Barcode printed on the postal label' })
+  @IsString()
+  barcode: string;
+
+  @ApiProperty({ example: 18000, description: 'Actual postage amount printed/recorded by the postal service; not recalculated by Pudo-N' })
+  @IsInt()
+  @Min(0)
+  postal_postage_amount: number;
+
+  @ApiProperty({ example: 'فرستنده نمونه' })
+  @IsString()
+  sender_name: string;
+
+  @ApiProperty({ example: '09120000002' })
+  @IsString()
+  sender_phone: string;
+
+  @ApiProperty({ description: 'Opaque private-object-storage reference for the postal label photo; public URLs are not accepted' })
+  @IsString()
+  @Length(8, 512)
+  label_image_ref: string;
 
   @ApiProperty({ example: 'IR1405000001' })
   @IsString()
