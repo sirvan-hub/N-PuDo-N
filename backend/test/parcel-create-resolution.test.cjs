@@ -2,6 +2,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { ParcelsService } = require('../dist/modules/parcels/parcels.service');
 const { ParcelStatus } = require('../dist/modules/parcels/parcel-state-machine');
+const { ParcelEntity } = require('../dist/database/entities/parcel.entity');
+const { HubEntity } = require('../dist/database/entities/hub.entity');
+const { InvoiceEntity } = require('../dist/database/entities/invoice.entity');
+const { UserRole } = require('../dist/common/interfaces/user-payload.interface');
 
 const dto = {
   tracking_code: 'TRACK-CI-001',
@@ -18,6 +22,9 @@ function makeService({ recipient = { id: 'recipient-1' }, hub = { id: 'hub-1', i
     { create: (value) => ({ ...value }), save: async (value) => { saved.push(value); return value; }, findOne: async () => null },
     { findOne: async () => hub },
     { findOne: async () => recipient },
+    undefined,
+    { calculate: () => ({ basePostCost: 18000, elapsedHours: 0, feePercentage: 0.2, calculatedFee: 3600, isExpired: false }) },
+    { create: async (parcel, pricing, manager) => ({ parcel_id: parcel.id, hub_id: parcel.current_hub_id, snapshot: { percentage: 30 }, amount: pricing.calculatedFee }) },
   );
   return { service, saved };
 }
@@ -25,7 +32,6 @@ function makeService({ recipient = { id: 'recipient-1' }, hub = { id: 'hub-1', i
 test('parcel creation resolves recipient and validates the proposed hub without claiming custody', async () => {
   const { service, saved } = makeService();
   const parcel = await service.create(dto, 'courier-1');
-
   assert.equal(parcel.recipient_id, 'recipient-1');
   assert.equal(parcel.proposed_hub_id, 'hub-1');
   assert.equal(parcel.current_hub_id, null);
@@ -36,20 +42,59 @@ test('parcel creation resolves recipient and validates the proposed hub without 
 
 test('parcel creation rejects an unregistered recipient', async () => {
   const { service } = makeService({ recipient: null });
-  await assert.rejects(
-    service.create(dto, 'courier-1'),
-    (error) => error && error.getStatus && error.getStatus() === 400,
-  );
+  await assert.rejects(service.create(dto, 'courier-1'), (error) => error && error.getStatus && error.getStatus() === 400);
 });
 
 test('parcel creation rejects a missing, inactive, or temporarily closed proposed hub', async (t) => {
   for (const hub of [null, { id: 'hub-1', is_active: false, is_temporarily_closed: false }, { id: 'hub-1', is_active: true, is_temporarily_closed: true }]) {
     await t.test(JSON.stringify(hub), async () => {
       const { service } = makeService({ hub });
-      await assert.rejects(
-        service.create(dto, 'courier-1'),
-        (error) => error && error.getStatus && error.getStatus() === 400,
-      );
+      await assert.rejects(service.create(dto, 'courier-1'), (error) => error && error.getStatus && error.getStatus() === 400);
     });
   }
+});
+
+test('hub owner receipt confirmation atomically records custody and creates an invoice snapshot', async () => {
+  const parcel = {
+    id: 'parcel-1', recipient_id: 'recipient-1', recipient_phone: dto.recipient_phone,
+    proposed_hub_id: 'hub-1', current_hub_id: null, delivered_to_hub_at: null,
+    base_post_cost: 18000, status: ParcelStatus.HUB_SELECTED, courier_id: 'courier-1',
+  };
+  const hub = { id: 'hub-1', owner_id: 'owner-1', is_active: true, is_temporarily_closed: false };
+  const invoiceRepo = { findOne: async () => null };
+  const manager = {
+    getRepository(entity) {
+      if (entity === ParcelEntity) return { findOne: async () => parcel, save: async (value) => value };
+      if (entity === HubEntity) return { findOne: async ({ where }) => where.owner_id === 'owner-1' ? hub : null };
+      if (entity === InvoiceEntity) return invoiceRepo;
+      throw new Error('Unexpected repository');
+    },
+  };
+  let transactionCalled = false;
+  const service = new ParcelsService(
+    { findOne: async () => parcel },
+    { findOne: async () => hub },
+    { findOne: async () => ({ id: 'recipient-1' }) },
+    { transaction: async (work) => { transactionCalled = true; return work(manager); } },
+    { calculate: (value, now) => ({ basePostCost: value.base_post_cost, elapsedHours: 0, feePercentage: 0.2, calculatedFee: 3600, isExpired: false }) },
+    { create: async (value, pricing, transactionManager) => ({ parcel_id: value.id, hub_id: value.current_hub_id, amount: pricing.calculatedFee, snapshot: { percentage: 30 }, manager: transactionManager }) },
+  );
+
+  const result = await service.confirmHubReceipt('parcel-1', { sub: 'owner-1', phone: '+18880000001', role: UserRole.HUB_OWNER, is_verified: true });
+  assert.equal(transactionCalled, true);
+  assert.equal(result.parcel.current_hub_id, 'hub-1');
+  assert.ok(result.parcel.delivered_to_hub_at instanceof Date);
+  assert.equal(result.parcel.status, ParcelStatus.STORED_AT_HUB);
+  assert.equal(result.invoice.parcel_id, 'parcel-1');
+  assert.equal(result.invoice.hub_id, 'hub-1');
+  assert.equal(result.invoice.amount, 3600);
+  assert.equal(result.alreadyConfirmed, false);
+});
+
+test('only a hub owner can confirm receipt', async () => {
+  const { service } = makeService();
+  await assert.rejects(
+    service.confirmHubReceipt('parcel-1', { sub: 'courier-1', phone: dto.recipient_phone, role: UserRole.COURIER, is_verified: true }),
+    (error) => error && error.getStatus && error.getStatus() === 403,
+  );
 });
