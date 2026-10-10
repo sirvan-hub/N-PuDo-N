@@ -11,12 +11,12 @@ import { UserPayload, UserRole } from '../../common/interfaces/user-payload.inte
 
 class ConfirmCustomerReleaseDto {
   @IsString()
-  @Matches(/^\\d{4,6}$/)
+  @Matches(/^\d{4,6}$/)
   deliveryCode: string;
 
   @IsOptional()
   @IsString()
-  @Matches(/^\\d{10}$/)
+  @Matches(/^\d{10}$/)
   nationalId?: string;
 }
 
