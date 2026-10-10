@@ -280,6 +280,61 @@ export class ParcelsService {
     });
   }
 
+  async listEntryFeePaymentsForReview(limit = 50) {
+    const safeLimit = Number.isInteger(limit) ? Math.min(Math.max(limit, 1), 100) : 50;
+    return this.dataSource.getRepository(NetworkEntryChargeEntity).find({
+      where: { status: NetworkEntryChargeStatus.RECEIPT_SUBMITTED },
+      order: { created_at: 'ASC' },
+      take: safeLimit,
+    });
+  }
+
+  async rejectNetworkEntryPayment(chargeId: string, reason: string, actor: UserPayload) {
+    if (![UserRole.ADMIN, UserRole.SUPER_ADMIN].includes(actor.role)) {
+      throw new ForbiddenException('Only an administrator can reject an entry-fee receipt');
+    }
+    if (typeof reason !== 'string' || !reason.trim() || reason.trim().length > 300) {
+      throw new BadRequestException('A rejection reason of 1 to 300 characters is required');
+    }
+    return this.dataSource.transaction(async (manager) => {
+      const charges = manager.getRepository(NetworkEntryChargeEntity);
+      const charge = await charges.findOne({ where: { id: chargeId } });
+      if (!charge) throw new NotFoundException('Network-entry charge not found');
+      if (charge.status !== NetworkEntryChargeStatus.RECEIPT_SUBMITTED) {
+        throw new ConflictException('Only submitted entry-fee receipts can be rejected');
+      }
+      charge.status = NetworkEntryChargeStatus.REJECTED;
+      charge.provider_reference = null;
+      charge.verified_by = null;
+      charge.verified_at = null;
+      const saved = await charges.save(charge);
+      const parcel = await manager.getRepository(ParcelEntity).findOne({ where: { id: charge.parcel_id } });
+      if (parcel?.recipient_id) {
+        await manager.getRepository(NotificationEntity).save(manager.getRepository(NotificationEntity).create({
+          user_id: parcel.recipient_id,
+          category: 'NETWORK_ENTRY_PAYMENT_REJECTED',
+          title: 'رسید پرداخت نیاز به اصلاح دارد',
+          body: `رسید هزینه ورود به شبکه تأیید نشد: ${reason.trim()} لطفاً رسید معتبر دیگری ثبت کنید.`,
+          reference_type: 'network_entry_charge',
+          reference_id: charge.id,
+        }));
+      }
+      await manager.getRepository(AuditLogEntity).save(manager.getRepository(AuditLogEntity).create({
+        actor_id: actor.sub,
+        actor_role: actor.role,
+        entity_type: 'network_entry_charge',
+        entity_id: charge.id,
+        action: 'NETWORK_ENTRY_RECEIPT_REJECTED',
+        old_state: { status: NetworkEntryChargeStatus.RECEIPT_SUBMITTED },
+        new_state: { status: NetworkEntryChargeStatus.REJECTED, reason: reason.trim() },
+        transaction_id: charge.id,
+        correlation_id: `network-entry-charge:${charge.id}`,
+        metadata: { parcelId: charge.parcel_id },
+      }));
+      return { charge: saved, rejected: true };
+    });
+  }
+
   async verifyNetworkEntryPayment(chargeId: string, providerReference: string, actor: UserPayload) {
     if (![UserRole.ADMIN, UserRole.SUPER_ADMIN].includes(actor.role)) {
       throw new ForbiddenException('Only an administrator can reconcile an externally verified entry-fee payment');
