@@ -357,6 +357,18 @@ export class ParcelsService {
       );
       throw error;
     }
+    await this.dataSource.getRepository(AuditLogEntity).save(this.dataSource.getRepository(AuditLogEntity).create({
+      actor_id: actor.sub,
+      actor_role: actor.role,
+      entity_type: 'custody_transfer',
+      entity_id: transfer.id,
+      action: 'DELIVERY_CODE_SENT',
+      old_state: null,
+      new_state: { status: CustodyTransferStatus.PENDING, expiresAt: expiresAt.toISOString() },
+      transaction_id: transfer.id,
+      correlation_id: `delivery-code:${transfer.id}`,
+      metadata: { parcelId: parcel.id, recipientId: actor.sub, channel: 'SMS' },
+    }));
     return { parcelId: parcel.id, transferId: transfer.id, sent: true, expiresAt: expiresAt.toISOString(), channel: 'SMS' };
   }
 
