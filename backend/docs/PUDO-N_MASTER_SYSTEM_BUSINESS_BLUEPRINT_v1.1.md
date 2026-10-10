@@ -197,11 +197,14 @@ These items do not block recording the core business model, but implementation m
 The following vertical slices have now been added to the feature branch; they must still pass the current head's CI before being treated as verified:
 
 - Recipient invitation/acceptance records, private in-app notification, audit events, PWA accept/reject actions, and an atomic backend gate requiring the matching accepted invitation before parcel registration.
+- Parcel registration now separates actual postal postage from Pudo-N tariff values and records barcode, sender details, and a private label-image reference. A distinct network-entry charge is calculated from the actual postal postage amount using `PUDO_ENTRY_FEE_PERCENT` (default 30%, constrained to 30–40%) and snapshots its rate/amount.
+- Recipient receipt references, administrator review/rejection, and manual reconciliation of externally verified entry-fee payments are implemented. Hub selection is blocked until the entry-fee charge is verified.
+- Network-entry revenue is allocated when a hub is selected; storage/collection revenue is allocated after invoice payment reconciliation. Both use immutable 30/30/40 allocation records and idempotent courier/hub wallet credits. Historical invoices are marked for manual reconciliation, not automatically reallocated.
 - Separate courier handover and hub receipt evidence-reference submissions. The parcel's hub custody and storage timer are set only after both parties have submitted evidence references.
-- Delivery code validity is one hour. Hub code verification is now a distinct event from parcel collection; final collection requires a recipient-side evidence confirmation as well.
-- Additive PostgreSQL migrations cover invitation and evidence fields. The PR remains Draft and unmerged.
+- Delivery code validity is one hour. Hub code verification is a distinct event from parcel collection; final collection requires a recipient-side evidence confirmation as well.
+- Additive PostgreSQL migrations cover consent, label/entry-fee, custody, final-handover, and revenue-allocation fields. The PR remains Draft and unmerged.
 
-These are **evidence-reference workflows, not a completed image-storage system**. Until an approved private object-storage adapter is implemented and configured, the APIs cannot prove that a reference resolves to a fresh camera image, and the PWA does not yet upload/retrieve private images. Public URLs are rejected. Do not treat this boundary as production-ready photo verification.
+These are **evidence-reference workflows, not a completed image-storage system**. Until an approved private object-storage adapter is implemented and configured, the APIs cannot prove that a reference resolves to a fresh camera image, and the PWA does not yet upload/retrieve private images. Public URLs are rejected. Do not treat this boundary as production-ready photo verification. Entry-fee rate configuration is currently environment-based; an admin settings screen and rate-change history are still needed.
 
 The following core work remains incomplete and is still required before the system can be called complete:
 
