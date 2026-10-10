@@ -66,7 +66,7 @@ export class ParcelsService {
         throw new ConflictException('Parcel is not awaiting a recipient PUDO request');
       }
 
-      let nextStatus = parcel.status;
+      let nextStatus: ParcelStatus = parcel.status;
       for (const status of [ParcelStatus.CUSTOMER_REQUEST, ParcelStatus.PUDO_ELIGIBILITY, ParcelStatus.HUB_SELECTED]) {
         if (!canTransitionParcel(nextStatus, status)) {
           throw new ConflictException(`Invalid PUDO request transition from ${nextStatus} to ${status}`);
@@ -115,7 +115,7 @@ export class ParcelsService {
         throw new ConflictException('Parcel is not in a state that permits hub receipt confirmation');
       }
 
-      let nextStatus = parcel.status;
+      let nextStatus: ParcelStatus = parcel.status;
       for (const status of [ParcelStatus.HANDOVER_IN_PROGRESS, ParcelStatus.TRANSFERRED_TO_HUB, ParcelStatus.STORED_AT_HUB]) {
         if (nextStatus === status) continue;
         if (!canTransitionParcel(nextStatus, status)) {
