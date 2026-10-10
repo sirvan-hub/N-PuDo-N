@@ -1,9 +1,10 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { ParcelEntity } from '../../database/entities/parcel.entity';
 import { AuditLogEntity } from '../../database/entities/audit-log.entity';
+import { NotificationsService } from '../notifications/notifications.service';
 import { HubEntity } from '../../database/entities/hub.entity';
 import { UserEntity } from '../../database/entities/user.entity';
 import { InvoiceEntity, PaymentStatus } from '../../database/entities/invoice.entity';
@@ -22,6 +23,7 @@ export class ParcelsService {
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly pricingService: PricingService,
     private readonly invoicesService: InvoicesService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async create(dto: any, courierId: string) {
@@ -262,36 +264,6 @@ export class ParcelsService {
     return createHash('sha256').update(`${salt}:${code}`).digest('hex');
   }
 
-  private async sendDeliveryCode(phone: string, parcelId: string, transferId: string, code: string) {
-    const endpoint = process.env.DELIVERY_CODE_SMS_URL;
-    const token = process.env.DELIVERY_CODE_SMS_TOKEN;
-    if (!endpoint || !token) {
-      throw new ServiceUnavailableException('Delivery-code SMS gateway is not configured; set DELIVERY_CODE_SMS_URL and DELIVERY_CODE_SMS_TOKEN');
-    }
-    let parsed: URL;
-    try { parsed = new URL(endpoint); } catch { throw new ServiceUnavailableException('Delivery-code SMS gateway URL is invalid'); }
-    if (process.env.NODE_ENV === 'production' && parsed.protocol !== 'https:') {
-      throw new ServiceUnavailableException('Production delivery-code SMS gateway must use HTTPS');
-    }
-    let response: Response;
-    try {
-      response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          to: phone,
-          template: 'pudo_delivery_code',
-          parcelId,
-          transferId,
-          message: `Pudo-N delivery code: ${code}. It expires in 10 minutes.`,
-        }),
-      });
-    } catch {
-      throw new ServiceUnavailableException('Delivery-code SMS gateway could not be reached');
-    }
-    if (!response.ok) throw new ServiceUnavailableException('Delivery-code SMS gateway rejected the request');
-  }
-
   /** Issues a short-lived HUB_TO_RECIPIENT custody code to the registered phone. */
   async requestDeliveryCode(parcelId: string, actor: UserPayload) {
     if (actor.role !== UserRole.RECIPIENT) throw new ForbiddenException('Only the parcel recipient can request a delivery code');
@@ -349,27 +321,35 @@ export class ParcelsService {
     });
 
     try {
-      await this.sendDeliveryCode(parcel.recipient_phone, parcel.id, transfer.id, code);
-    } catch (error) {
+      await this.notificationsService.createForUser({
+        user_id: actor.sub,
+        category: 'DELIVERY_CODE',
+        title: 'کد تحویل مرسوله',
+        body: `کد یک‌بارمصرف تحویل مرسوله ${parcel.tracking_code} برابر ${code} است. این کد تا ۱۰ دقیقه معتبر است و فقط یک‌بار استفاده می‌شود. کد را فقط هنگام تحویل واقعی مرسوله در اختیار هاب‌دار قرار دهید.`,
+        reference_type: 'custody_transfer',
+        reference_id: transfer.id,
+        expires_at: expiresAt,
+      });
+    } catch {
       await transferRepository.update(
         { id: transfer.id, status: CustodyTransferStatus.PENDING },
-        { status: CustodyTransferStatus.EXPIRED, failure_reason: 'SMS delivery failed' },
+        { status: CustodyTransferStatus.EXPIRED, failure_reason: 'In-app notification persistence failed' },
       );
-      throw error;
+      throw new ConflictException('Delivery code could not be placed in the recipient inbox; request a new code');
     }
     await this.dataSource.getRepository(AuditLogEntity).save(this.dataSource.getRepository(AuditLogEntity).create({
       actor_id: actor.sub,
       actor_role: actor.role,
       entity_type: 'custody_transfer',
       entity_id: transfer.id,
-      action: 'DELIVERY_CODE_SENT',
+      action: 'DELIVERY_CODE_NOTIFIED_IN_APP',
       old_state: null,
-      new_state: { status: CustodyTransferStatus.PENDING, expiresAt: expiresAt.toISOString() },
+      new_state: { status: CustodyTransferStatus.PENDING, expiresAt: expiresAt.toISOString(), deliveryChannel: 'IN_APP' },
       transaction_id: transfer.id,
       correlation_id: `delivery-code:${transfer.id}`,
-      metadata: { parcelId: parcel.id, recipientId: actor.sub, channel: 'SMS' },
+      metadata: { parcelId: parcel.id, recipientId: actor.sub, channel: 'IN_APP' },
     }));
-    return { parcelId: parcel.id, transferId: transfer.id, sent: true, expiresAt: expiresAt.toISOString(), channel: 'SMS' };
+    return { parcelId: parcel.id, transferId: transfer.id, sent: true, expiresAt: expiresAt.toISOString(), channel: 'IN_APP' };
   }
 
   /**
