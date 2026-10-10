@@ -14,7 +14,7 @@ export class PricingService {
     }
 
     const deliveredAt = new Date(parcel.delivered_to_hub_at);
-    const currentTime = new Date(now);
+    const currentTime = now;
     const basePostCost = Number(parcel.base_post_cost);
     if (!Number.isFinite(deliveredAt.getTime()) || !Number.isFinite(currentTime.getTime())) {
       throw new BadRequestException('Invalid pricing timestamp');
