@@ -13,7 +13,7 @@ The next change should be additive and versioned. Do not rewrite the existing in
 
 ## 1A. Approved contract and implementation status
 
-The implementation contract is documented in [FINANCIAL_IDEMPOTENCY_CUSTODY_CONTRACT.md](./FINANCIAL_IDEMPOTENCY_CUSTODY_CONTRACT.md). It records the user's choices: ledger-backed wallets; preserve current invoice states and add `OVERDUE` / `CANCELLED`; idempotency uniqueness by actor scope + operation type + key; four-digit single-use custody codes stored as salted hashes.
+The implementation contract is documented in [FINANCIAL_IDEMPOTENCY_CUSTODY_CONTRACT.md](./FINANCIAL_IDEMPOTENCY_CUSTODY_CONTRACT.md). It records the user's choices: ledger-backed wallets; preserve current invoice states and add `OVERDUE` / `CANCELLED`; idempotency uniqueness by actor scope + operation type + key; single-use recipient collection codes stored as salted hashes; the approved recipient collection-code lifetime is one hour.
 
 The additive migration `1791630000001-AddDomainFinancialContracts` creates tariff versions, invoice snapshots/status constraint, idempotency records, wallet ledger, registration history, custody transfer history, settlement records, audit logs, wallet blocked balance, and parcel lifecycle columns. It backfills existing invoice pricing fields into immutable JSON snapshots and establishes opening ledger entries for nonzero available/pending wallet balances.
 
