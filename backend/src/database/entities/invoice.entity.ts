@@ -20,6 +20,7 @@ export class InvoiceEntity {
   @Column({ type: 'varchar', length: 20, default: PaymentStatus.PENDING }) status: PaymentStatus;
   @Column({ type: 'integer' }) hub_owner_share: number;
   @Column({ type: 'integer' }) platform_fee: number;
+  @Column({ type: databaseDateColumnType, nullable: true }) paid_at: Date;
   @CreateDateColumn({ type: databaseDateColumnType }) created_at: Date;
   @UpdateDateColumn({ type: databaseDateColumnType }) updated_at: Date;
 }
