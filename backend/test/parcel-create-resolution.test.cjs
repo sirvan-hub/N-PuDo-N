@@ -4,6 +4,7 @@ const { createHash } = require('node:crypto');
 const { ParcelsService } = require('../dist/modules/parcels/parcels.service');
 const { ParcelStatus } = require('../dist/modules/parcels/parcel-state-machine');
 const { ParcelEntity } = require('../dist/database/entities/parcel.entity');
+const { ParcelInvitationEntity, ParcelInvitationStatus } = require('../dist/database/entities/parcel-invitation.entity');
 const { HubEntity } = require('../dist/database/entities/hub.entity');
 const { InvoiceEntity } = require('../dist/database/entities/invoice.entity');
 const { CustodyTransferEntity, CustodyTransferStatus, CustodyTransferType } = require('../dist/database/entities/custody-transfer.entity');
@@ -21,13 +22,19 @@ const dto = {
   proposed_hub_id: 'hub-1',
 };
 
-function makeService({ recipient = { id: 'recipient-1' }, hub = { id: 'hub-1', is_active: true, is_temporarily_closed: false } } = {}) {
+function makeService({ recipient = { id: 'recipient-1', phone: dto.recipient_phone, role: UserRole.RECIPIENT, is_active: true }, hub = { id: 'hub-1', is_active: true, is_temporarily_closed: false } } = {}) {
   const saved = [];
+  const manager = { getRepository(entity) {
+    if (entity === ParcelEntity) return { create: (value) => ({ ...value, id: value.id || 'parcel-created-1' }), save: async (value) => { saved.push(value); return value; } };
+    if (entity === ParcelInvitationEntity) return { findOne: async () => ({ id: dto.invitation_id, courier_id: 'courier-1', recipient_id: 'recipient-1', recipient_phone: dto.recipient_phone, status: ParcelInvitationStatus.ACCEPTED, responded_at: new Date() }), update: async () => ({ affected: 1 }) };
+    if (entity === AuditLogEntity) return { create: (value) => value, save: async (value) => value };
+    throw new Error('Unexpected repository in makeService');
+  } };
   const service = new ParcelsService(
     { create: (value) => ({ ...value }), save: async (value) => { saved.push(value); return value; }, findOne: async () => null },
     { findOne: async () => hub },
     { findOne: async () => recipient },
-    undefined,
+    { transaction: async (work) => work(manager) },
     { resolveBaseCost: async () => ({ basePostCost: 25000, tariffVersionId: 'tariff-v1' }),
       calculate: () => ({ basePostCost: 18000, elapsedHours: 0, feePercentage: 0.2, calculatedFee: 3600, isExpired: false }),
       calculateWithActiveTariff: async () => ({ basePostCost: 18000, elapsedHours: 13, feePercentage: 0.4, calculatedFee: 7200, isExpired: false, tariffVersionId: 'tariff-v1', tariffSnapshot: { tariffKey: 'PUDO-N-TARIFF-168H-V1', appliedPercentage: 40 } }) },
