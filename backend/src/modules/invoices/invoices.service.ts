@@ -1,4 +1,4 @@
-﻿import { Injectable } from '@nestjs/common';
+﻿import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { InvoiceEntity, PaymentStatus } from '../../database/entities/invoice.entity';
@@ -8,6 +8,9 @@ export class InvoicesService {
   constructor(@InjectRepository(InvoiceEntity) private repo: Repository<InvoiceEntity>) {}
 
   async create(parcel: any, pricing: any) {
+    if (!parcel?.recipient_id || !parcel?.current_hub_id) {
+      throw new BadRequestException('Invoice requires a resolved recipient and current hub');
+    }
     const hubShare = Math.round(pricing.calculatedFee * 0.7);
     const platformFee = pricing.calculatedFee - hubShare;
     const invoice = this.repo.create({
