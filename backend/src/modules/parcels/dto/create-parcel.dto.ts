@@ -1,4 +1,4 @@
-import { IsString, IsInt, Min, IsOptional, IsNumber } from 'class-validator';
+import { IsString, IsInt, Min, IsOptional, IsNumber, IsIn } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateParcelDto {
@@ -18,10 +18,15 @@ export class CreateParcelDto {
   @IsString()
   recipient_address: string;
 
-  @ApiProperty({ example: 18000, description: 'هزینه پایه پست بر حسب تومان؛ باید با اندازه بسته و نسخه تعرفه مصوب تطبیق داده شود' })
+  @ApiProperty({ enum: ['SMALL', 'MEDIUM', 'LARGE'], example: 'MEDIUM', description: 'اندازه بسته؛ مبلغ پایه از نسخه تعرفه فعال در سرور تعیین می‌شود' })
+  @IsIn(['SMALL', 'MEDIUM', 'LARGE'])
+  package_size: 'SMALL' | 'MEDIUM' | 'LARGE';
+
+  @ApiPropertyOptional({ example: 25000, description: 'برای سازگاری کلاینت قدیمی؛ سرور مقدار ارسالی را نادیده می‌گیرد' })
+  @IsOptional()
   @IsInt()
   @Min(0)
-  base_post_cost: number;
+  base_post_cost?: number;
 
   @ApiProperty({ example: 'hub-001' })
   @IsString()
