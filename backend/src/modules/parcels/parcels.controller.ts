@@ -1,5 +1,5 @@
 import { Controller, Post, Get, Body, Param, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
-import { IsOptional, IsString, Matches } from 'class-validator';
+import { IsOptional, IsString, Matches, IsBoolean } from 'class-validator';
 import { ApiTags, ApiOperation, ApiBody, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { ParcelsService } from './parcels.service';
 import { CreateParcelDto } from './dto/create-parcel.dto';
@@ -8,6 +8,17 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { UserPayload, UserRole } from '../../common/interfaces/user-payload.interface';
+
+class CreateParcelInvitationDto {
+  @IsString()
+  @Matches(/^\+?\d{8,15}$/)
+  recipient_phone: string;
+}
+
+class RespondParcelInvitationDto {
+  @IsBoolean()
+  accepted: boolean;
+}
 
 class ConfirmCustomerReleaseDto {
   @IsString()
@@ -26,6 +37,22 @@ class ConfirmCustomerReleaseDto {
 @ApiBearerAuth()
 export class ParcelsController {
   constructor(private readonly parcelsService: ParcelsService) {}
+
+  @Post('invitations')
+  @Roles(UserRole.COURIER)
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Invite a registered recipient to use Pudo-N before parcel registration' })
+  async createInvitation(@Body() body: CreateParcelInvitationDto, @CurrentUser() user: UserPayload) {
+    return this.parcelsService.createInvitation(body.recipient_phone, user);
+  }
+
+  @Post('invitations/:id/respond')
+  @Roles(UserRole.RECIPIENT)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Recipient accepts or rejects a Pudo-N invitation' })
+  async respondToInvitation(@Param('id') id: string, @Body() body: RespondParcelInvitationDto, @CurrentUser() user: UserPayload) {
+    return this.parcelsService.respondToInvitation(id, body.accepted, user);
+  }
 
   @Post()
   @Roles(UserRole.COURIER)
