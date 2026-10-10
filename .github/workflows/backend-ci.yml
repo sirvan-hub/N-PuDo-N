@@ -34,3 +34,5 @@ jobs:
         run: npm ci
       - name: Build backend
         run: npm run build
+      - name: Pricing, custody-release, and SQLite settlement regression tests
+        run: node --test test/pricing-service.test.cjs test/parcel-create-resolution.test.cjs test/sqlite-settlement-compat.test.cjs
