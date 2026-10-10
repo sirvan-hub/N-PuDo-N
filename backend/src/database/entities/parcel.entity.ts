@@ -1,4 +1,5 @@
 ﻿import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { databaseDateColumnType, databaseUuidColumnType } from '../database-column-types';
 
 @Entity('parcels')
 export class ParcelEntity {
@@ -20,13 +21,13 @@ export class ParcelEntity {
   @Column('int')
   base_post_cost: number;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: databaseUuidColumnType, nullable: true })
   proposed_hub_id: string;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: databaseUuidColumnType, nullable: true })
   recipient_id?: string;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: databaseUuidColumnType, nullable: true })
   current_hub_id?: string;
 
   @Column({ nullable: true })  // ← مهم: برای تست
@@ -41,12 +42,12 @@ export class ParcelEntity {
   @Column({ nullable: true })
   description?: string;
 
-  @Column({ type: 'timestamptz', nullable: true })
+  @Column({ type: databaseDateColumnType, nullable: true })
   delivered_to_hub_at?: Date;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @CreateDateColumn({ type: databaseDateColumnType })
   created_at: Date;
 
-  @UpdateDateColumn({ type: 'timestamptz' })
+  @UpdateDateColumn({ type: databaseDateColumnType })
   updated_at: Date;
 }
