@@ -38,7 +38,7 @@
 
 - Custody codes are exactly four decimal digits at issuance, stored only as a cryptographic hash; raw codes must never be persisted.
 - A code is single-use. Successful use records `consumed_at`; expiry is explicit per transfer via `expires_at`. Attempt count is recorded.
-- A fixed expiry duration, maximum failed attempts, and lockout duration are not yet approved. The schema records expiry/attempts but intentionally does not hard-code those policy values.
+- The approved recipient collection-code lifetime is one hour from issuance. Codes remain single-use and expire explicitly through `expires_at`; the current implementation invalidates a code after five failed attempts and applies a resend cooldown. These policy values must be covered by service tests and recipient-facing copy.
 - Registration, custody handover, and settlement remain distinct events and tables.
 
 ## 5. Settlement reconciliation slice
