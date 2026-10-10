@@ -1,8 +1,9 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 
 type UserRole = 'COURIER' | 'HUB_OWNER' | 'RECIPIENT' | 'ADMIN' | 'SUPER_ADMIN' | string;
 type AuthUser = { sub?: string; id?: string; username?: string; phone?: string; role: UserRole; is_verified?: boolean };
 type AuthResponse = { access_token: string; user: AuthUser };
+type AppNotification = { id: string; category: string; title: string; body: string; expires_at?: string | null; read_at?: string | null; created_at: string };
 
 const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\/$/, '');
 
@@ -32,6 +33,55 @@ export default function App() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [session, setSession] = useState<{ token: string; user: AuthUser } | null>(null);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [notificationError, setNotificationError] = useState('');
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+
+  useEffect(() => {
+    if (!session || !apiBase) {
+      setNotifications([]);
+      setNotificationError('');
+      setNotificationsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setNotificationsLoading(true);
+    setNotificationError('');
+    fetch(`${apiBase}/notifications`, {
+      headers: { Authorization: `Bearer ${session.token}` },
+    })
+      .then(async (response) => {
+        const body: unknown = await response.json().catch(() => []);
+        if (!response.ok) throw new Error(getApiError(body, `دریافت پیام‌ها ناموفق بود (HTTP ${response.status}).`));
+        if (!Array.isArray(body)) throw new Error('ساختار پاسخ صندوق پیام معتبر نیست.');
+        if (!cancelled) setNotifications(body as AppNotification[]);
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled) setNotificationError(cause instanceof Error ? cause.message : 'دریافت پیام‌ها ناموفق بود.');
+      })
+      .finally(() => {
+        if (!cancelled) setNotificationsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [session]);
+
+  async function markNotificationRead(notificationId: string) {
+    if (!session || !apiBase) return;
+    setNotificationError('');
+    try {
+      const response = await fetch(`${apiBase}/notifications/${encodeURIComponent(notificationId)}/read`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.token}` },
+      });
+      const body: unknown = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(getApiError(body, `ثبت خواندن پیام ناموفق بود (HTTP ${response.status}).`));
+      setNotifications((items) => items.map((item) => item.id === notificationId
+        ? { ...item, read_at: new Date().toISOString() }
+        : item));
+    } catch (cause) {
+      setNotificationError(cause instanceof Error ? cause.message : 'ثبت خواندن پیام ناموفق بود.');
+    }
+  }
 
   function switchMode(next: 'login' | 'register') {
     setMode(next);
@@ -101,6 +151,8 @@ export default function App() {
     setFullName('');
     setError('');
     setNotice('');
+    setNotifications([]);
+    setNotificationError('');
     setMode('login');
   }
 
@@ -164,6 +216,25 @@ export default function App() {
             <button className="outline-button" onClick={signOut}>خروج از حساب</button>
           </div>
           <div className="user-strip"><span className="avatar">{(role?.short ?? 'کاربر').slice(0, 1)}</span><div><strong>{role?.title ?? 'نقش تعریف‌نشده'}</strong><small dir="ltr">{session.user.username ?? username} · {session.user.phone ?? phone}</small></div><span className="role-pill">{role?.short ?? session.user.role}</span></div>
+          <section className="notification-section" aria-labelledby="notifications-heading">
+            <div className="notification-heading">
+              <div><span className="eyebrow">INBOX</span><h2 id="notifications-heading">صندوق پیام‌های شما</h2></div>
+              <span className="notification-count">{notifications.filter((item) => !item.read_at).length} خوانده‌نشده</span>
+            </div>
+            {notificationsLoading && <p className="muted">در حال دریافت پیام‌ها…</p>}
+            {notificationError && <p className="feedback error" role="alert">{notificationError}</p>}
+            {!notificationsLoading && !notificationError && notifications.length === 0 && <p className="notification-empty">پیامی برای نمایش وجود ندارد.</p>}
+            {notifications.length > 0 && <div className="notification-list">
+              {notifications.map((item) => (
+                <article className={`notification-card ${item.read_at ? 'read' : 'unread'}`} key={item.id}>
+                  <div className="notification-card-top"><strong>{item.title}</strong><time>{new Date(item.created_at).toLocaleString('fa-IR')}</time></div>
+                  <p>{item.body}</p>
+                  {item.expires_at && <small className="notification-expiry">اعتبار تا {new Date(item.expires_at).toLocaleTimeString('fa-IR')}</small>}
+                  {!item.read_at && <button className="text-button" type="button" onClick={() => void markNotificationRead(item.id)}>علامت‌گذاری به‌عنوان خوانده‌شده</button>}
+                </article>
+              ))}
+            </div>}
+          </section>
           <h2 className="section-heading">پنل کاری شما</h2>
           <div className="panel-grid">
             {Object.entries(roleInfo).map(([key, item]) => {
