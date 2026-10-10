@@ -23,10 +23,11 @@ export class CreateParcelDto {
   @IsString()
   sender_phone: string;
 
-  @ApiProperty({ description: 'Opaque private-object-storage reference for the postal label photo; public URLs are not accepted' })
+  @ApiPropertyOptional({ description: 'Optional during draft creation; attach a private LABEL_IMAGE reference before hub selection. Public URLs are not accepted.' })
+  @IsOptional()
   @IsString()
   @Length(8, 512)
-  label_image_ref: string;
+  label_image_ref?: string;
 
   @ApiProperty({ example: 'IR1405000001' })
   @IsString()
