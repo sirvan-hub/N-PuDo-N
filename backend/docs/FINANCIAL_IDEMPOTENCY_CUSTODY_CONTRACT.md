@@ -12,7 +12,7 @@
 - `wallets.total_earned` is a cumulative reporting metric for earned credits; it is not the spendable balance and must not be decremented by payout.
 - `wallet_transactions` is the immutable record of balance-bucket movements. Amounts are signed integer minor units in the project's current currency convention (whole toman); positive adds and negative removes from the named bucket. Every row records the resulting bucket balance.
 - The invariant for each wallet and bucket is: the bucket balance equals the sum of its opening-balance entry plus all later ledger entries in that bucket. Available, pending, and blocked balances must never be combined implicitly.
-- Posting a ledger row and updating the matching wallet balance must occur in the same database transaction. Application code must use row locking or equivalent concurrency control. The schema migration alone does not claim to implement that posting service.
+- Posting a ledger row and updating the matching wallet balance must occur in the same database transaction. The implemented `WalletsService.credit(userId, amount, idempotencyKey)` uses a transaction and PostgreSQL row locking, and writes the idempotency response in the same transaction. This currently covers the wallet-credit service operation only; it does not yet provide a public API endpoint or implement all debit/hold/payout operations.
 - Ledger entries are append-only by application contract. Corrections use compensating entries, not UPDATE/DELETE. The database migration does not install a trigger that prevents a privileged database operator from editing rows.
 - Existing nonzero available and pending balances are represented by deterministic opening entries during migration. `blocked_balance` is introduced by this migration and starts at zero. Historical movements before this migration cannot be reconstructed; the opening entries establish a migration-time starting point only.
 - No revenue split is approved by this contract. Existing `hub_owner_share` and `platform_fee` fields remain for compatibility but must not be treated as approval of the currently coded 70/30 calculation.
@@ -30,7 +30,7 @@
 
 - Uniqueness scope is `actor_scope + operation_type + idempotency_key`. For a user, `actor_scope` should identify that user; system operations use a stable service identity. This avoids nullable-actor uniqueness gaps.
 - Each record stores a SHA-256 request hash. Reusing a key with the same operation and same hash returns the original recorded result; reusing it with a different hash is a conflict and must be rejected. The database can enforce uniqueness, but application code must compare hashes and return the correct response.
-- Idempotency record creation and the operation's database effects must be in one transaction. External payment calls require a separate outbox/provider reconciliation strategy; this schema alone cannot make an external provider call atomic.
+- Idempotency record creation and the operation's database effects must be in one transaction. The wallet-credit service implements this for `wallet.credit`, including same-key/same-request replay and same-key/different-request conflict handling. External payment calls require a separate outbox/provider reconciliation strategy; this service cannot make an external provider call atomic.
 - Keys are scoped by operation, so a key for `invoice.create` does not collide with `wallet.credit`.
 - Request keys are not credentials. Do not store access tokens, raw custody codes, or other secrets in the idempotency record.
 
