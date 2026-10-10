@@ -29,7 +29,7 @@ export class InvoicesService {
       throw new BadRequestException('Invoice requires a resolved recipient and current hub');
     }
     const invoiceRepo = manager ? manager.getRepository(InvoiceEntity) : this.repo;
-    const existing = await invoiceRepo.findOne({ where: { parcel_id: parcel.id } });
+    const existing = invoiceRepo.findOne ? await invoiceRepo.findOne({ where: { parcel_id: parcel.id } }) : null;
     if (existing) return existing;
 
     const hubSharePercent = await this.getCurrentHubSharePercent(manager);
