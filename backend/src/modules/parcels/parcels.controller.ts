@@ -1,4 +1,5 @@
 import { Controller, Post, Get, Body, Param, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+import { IsOptional, IsString, Matches } from 'class-validator';
 import { ApiTags, ApiOperation, ApiBody, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { ParcelsService } from './parcels.service';
 import { CreateParcelDto } from './dto/create-parcel.dto';
@@ -7,6 +8,17 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { UserPayload, UserRole } from '../../common/interfaces/user-payload.interface';
+
+class ConfirmCustomerReleaseDto {
+  @IsString()
+  @Matches(/^\\d{4,6}$/)
+  deliveryCode: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\\d{10}$/)
+  nationalId?: string;
+}
 
 @ApiTags('Parcels')
 @Controller('parcels')
@@ -52,13 +64,25 @@ export class ParcelsController {
     return this.parcelsService.confirmHubReceipt(id, user);
   }
 
+  @Post(':id/request-delivery-code')
+  @Roles(UserRole.RECIPIENT)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Send a short-lived delivery code to the registered recipient phone through the configured SMS gateway' })
+  async requestDeliveryCode(@Param('id') id: string, @CurrentUser() user: UserPayload) {
+    return this.parcelsService.requestDeliveryCode(id, user);
+  }
+
   @Post(':id/confirm-customer-release')
   @Roles(UserRole.HUB_OWNER)
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Release a ready parcel to its recipient only after the invoice is paid' })
-  @ApiResponse({ status: 200, description: 'Parcel marked collected after verified payment reconciliation' })
-  async confirmCustomerRelease(@Param('id') id: string, @CurrentUser() user: UserPayload) {
-    return this.parcelsService.confirmCustomerRelease(id, user);
+  @ApiOperation({ summary: 'Release a ready parcel only after payment and one-time delivery-code verification' })
+  @ApiResponse({ status: 200, description: 'Parcel marked collected after code verification and audit logging' })
+  async confirmCustomerRelease(
+    @Param('id') id: string,
+    @Body() body: ConfirmCustomerReleaseDto,
+    @CurrentUser() user: UserPayload,
+  ) {
+    return this.parcelsService.confirmCustomerRelease(id, user, body.deliveryCode, body.nationalId);
   }
 
   @Get(':id')
