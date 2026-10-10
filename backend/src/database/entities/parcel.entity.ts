@@ -1,5 +1,6 @@
 ﻿import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 import { databaseDateColumnType, databaseUuidColumnType } from '../database-column-types';
+import { ParcelStatus } from '../../modules/parcels/parcel-state-machine';
 
 @Entity('parcels')
 export class ParcelEntity {
@@ -33,8 +34,8 @@ export class ParcelEntity {
   @Column({ nullable: true })  // ← مهم: برای تست
   courier_id: string;
 
-  @Column({ type: 'varchar', length: 30, default: 'DELIVERY_ATTEMPT' })
-  status: string;
+  @Column({ type: 'varchar', length: 30, default: ParcelStatus.DELIVERY_ATTEMPT })
+  status: ParcelStatus;
 
   @Column({ type: 'decimal', precision: 10, scale: 3, nullable: true })
   weight_kg?: number;
