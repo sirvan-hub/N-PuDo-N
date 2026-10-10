@@ -252,7 +252,7 @@ export class ParcelsService {
     const repository = manager.getRepository(ParcelEntity);
     return repository.findOne({
       where: { id: parcelId },
-      ...(manager.connection.options.type === 'postgres'
+      ...(manager.connection?.options?.type === 'postgres'
         ? { lock: { mode: 'pessimistic_write' as const } }
         : {}),
     });
