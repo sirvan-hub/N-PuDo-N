@@ -1,14 +1,46 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { LessThanOrEqual, Repository } from 'typeorm';
 import { NotificationEntity } from '../../database/entities/notification.entity';
 
+const EXPIRED_CODE_TITLE = 'کد تحویل منقضی شد';
+const EXPIRED_CODE_BODY = 'این کد منقضی شده و دیگر قابل استفاده نیست.';
+const CLEANUP_INTERVAL_MS = 60_000;
+
 @Injectable()
-export class NotificationsService {
+export class NotificationsService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(NotificationsService.name);
+  private cleanupTimer?: ReturnType<typeof setInterval>;
+
   constructor(
     @InjectRepository(NotificationEntity)
     private readonly notifications: Repository<NotificationEntity>,
   ) {}
+
+  onModuleInit(): void {
+    // Scrub immediately, then periodically so expiry cleanup does not depend on a
+    // recipient opening their inbox. The update is idempotent and safe across replicas.
+    void this.scrubExpiredDeliveryCodes().catch(() => {
+      this.logger.error('Initial expired delivery-code notification cleanup failed');
+    });
+    this.cleanupTimer = setInterval(() => {
+      void this.scrubExpiredDeliveryCodes().catch(() => {
+        this.logger.error('Scheduled expired delivery-code notification cleanup failed');
+      });
+    }, CLEANUP_INTERVAL_MS);
+    this.cleanupTimer.unref?.();
+  }
+
+  onModuleDestroy(): void {
+    if (this.cleanupTimer) clearInterval(this.cleanupTimer);
+  }
+
+  async scrubExpiredDeliveryCodes(now = new Date()): Promise<void> {
+    await this.notifications.update(
+      { category: 'DELIVERY_CODE', expires_at: LessThanOrEqual(now) },
+      { title: EXPIRED_CODE_TITLE, body: EXPIRED_CODE_BODY },
+    );
+  }
 
   async createForUser(input: Partial<NotificationEntity>): Promise<NotificationEntity> {
     return this.notifications.save(this.notifications.create(input));
@@ -16,6 +48,7 @@ export class NotificationsService {
 
   async listForUser(userId: string, limit = 50): Promise<NotificationEntity[]> {
     const now = new Date();
+    await this.scrubExpiredDeliveryCodes(now);
     const rows = await this.notifications.find({
       where: { user_id: userId },
       order: { created_at: 'DESC' },
