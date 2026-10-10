@@ -39,6 +39,8 @@ test('parcel creation resolves recipient and validates the proposed hub without 
   assert.equal(parcel.current_hub_id, null);
   assert.equal(parcel.courier_id, 'courier-1');
   assert.equal(parcel.status, ParcelStatus.DELIVERY_ATTEMPT);
+  assert.equal(parcel.base_post_cost, 25000);
+  assert.equal(parcel.tariff_version_id, 'tariff-v1');
   assert.equal(saved.length, 1);
 });
 
