@@ -1,0 +1,61 @@
+name: PostgreSQL CI
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/postgres-ci.yml"
+  push:
+    branches:
+      - "**"
+    paths:
+      - "backend/**"
+      - ".github/workflows/postgres-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-smoke:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: pudo_test
+          POSTGRES_USER: pudo_test
+          POSTGRES_PASSWORD: ci-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pudo_test -d pudo_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DB_TYPE: postgres
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_NAME: pudo_test
+      DB_USER: pudo_test
+      DB_PASSWORD: ci-only-password
+      DB_SSL: "false"
+      NODE_ENV: test
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Build backend
+        run: npm run build
+      - name: PostgreSQL connection smoke test
+        run: node --test test/postgres-smoke.cjs
