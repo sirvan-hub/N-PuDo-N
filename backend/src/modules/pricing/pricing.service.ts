@@ -12,7 +12,7 @@ import { DataSource } from 'typeorm';
 export class PricingService {
   constructor(@Optional() @InjectDataSource() private readonly dataSource?: DataSource) {}
 
-  async calculateWithActiveTariff(parcel: any, now: Date = new Date()) {
+  private async getActiveTariff(now: Date) {
     if (!this.dataSource) throw new BadRequestException('Tariff database is unavailable');
     const postgres = this.dataSource.options.type === 'postgres';
     const rows = await this.dataSource.query(
@@ -26,7 +26,21 @@ export class PricingService {
       postgres ? [now.toISOString()] : [now.toISOString(), now.toISOString()],
     );
     if (rows.length !== 1) throw new BadRequestException('Exactly one active effective tariff version is required');
-    const tariff = rows[0];
+    return rows[0];
+  }
+
+  async resolveBaseCost(packageSize: string, now: Date = new Date()) {
+    const tariff = await this.getActiveTariff(now);
+    const size = String(packageSize || '').toUpperCase();
+    const amounts: Record<string, unknown> = {
+      SMALL: tariff.small_base_amount, MEDIUM: tariff.medium_base_amount, LARGE: tariff.large_base_amount,
+    };
+    if (!(size in amounts)) throw new BadRequestException('A valid package_size is required');
+    return { basePostCost: Number(amounts[size]), tariffVersionId: tariff.id, tariffKey: tariff.version_key };
+  }
+
+  async calculateWithActiveTariff(parcel: any, now: Date = new Date()) {
+    const tariff = await this.getActiveTariff(now);
     const size = String(parcel?.package_size || '').toUpperCase();
     const amounts: Record<string, unknown> = {
       SMALL: tariff.small_base_amount, MEDIUM: tariff.medium_base_amount, LARGE: tariff.large_base_amount,
