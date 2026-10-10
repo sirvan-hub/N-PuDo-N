@@ -55,7 +55,12 @@ test('PostgreSQL serializes concurrent payment reconciliation and parcel release
     invoice = await dataSource.getRepository(InvoiceEntity).save(dataSource.getRepository(InvoiceEntity).create({
       invoice_number: `INV-CC-${suffix}`, parcel_id: parcel.id, recipient_id: recipient.id, hub_id: hub.id,
       base_post_cost: 18000, elapsed_hours: 1, fee_percentage: 20, calculated_fee: 3600,
-      total_amount: 3600, status: PaymentStatus.PENDING, hub_owner_share: 1080, platform_fee: 0,
+      total_amount: 3600, status: PaymentStatus.PENDING, courier_share: 1080, hub_owner_share: 1080, platform_fee: 1440,
+      revenue_allocation_snapshot: {
+        snapshotVersion: 2, allocationStatus: 'SNAPSHOTTED_PENDING_PAYMENT',
+        rule: 'fixed-30-30-40-of-pudo-service-charge', basisAmount: 3600, currencyUnit: 'TOMAN',
+        shares: { courier: { percent: 30, amount: 1080 }, hub: { percent: 30, amount: 1080 }, platform: { percent: 40, amount: 1440 } },
+      },
       hub_share_percent: 30, tariff_snapshot: { snapshotVersion: 1 }, tariff_version_id: null,
       hub_share_snapshot: { percentage: 30 },
     }));
@@ -91,6 +96,9 @@ test('PostgreSQL serializes concurrent payment reconciliation and parcel release
 
     const payment = await dataSource.getRepository(InvoiceEntity).findOneByOrFail({ id: invoice.id });
     assert.equal(payment.status, PaymentStatus.PAID);
+    assert.equal(await dataSource.getRepository(RevenueAllocationEntity).countBy({ charge_id: invoice.id }), 3);
+    assert.equal((await dataSource.getRepository(WalletEntity).findOneByOrFail({ user_id: courier.id })).balance, 1080);
+    assert.equal((await dataSource.getRepository(WalletEntity).findOneByOrFail({ user_id: owner.id })).balance, 1080);
 
     const parcelService = new ParcelsService(
       dataSource.getRepository(ParcelEntity),
