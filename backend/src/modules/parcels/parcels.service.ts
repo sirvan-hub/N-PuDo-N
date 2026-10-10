@@ -134,6 +134,48 @@ export class ParcelsService {
     });
   }
 
+  async requestCustomerCollection(parcelId: string, actor: UserPayload) {
+    if (actor.role !== UserRole.RECIPIENT) throw new ForbiddenException('Only the parcel recipient can request collection');
+
+    return this.dataSource.transaction(async (manager) => {
+      const parcels = manager.getRepository(ParcelEntity);
+      const parcel = await parcels.findOne({ where: { id: parcelId }, lock: { mode: 'pessimistic_write' } });
+      if (!parcel) throw new NotFoundException('Parcel not found');
+      if (parcel.recipient_id !== actor.sub && parcel.recipient_phone !== actor.phone) {
+        throw new ForbiddenException('Only the parcel recipient can request collection');
+      }
+      if (!parcel.current_hub_id || !parcel.delivered_to_hub_at) {
+        throw new ConflictException('Parcel has not been received into hub custody');
+      }
+
+      const invoices = manager.getRepository(InvoiceEntity);
+      const existingInvoice = await invoices.findOne({ where: { parcel_id: parcel.id } });
+      if (existingInvoice) {
+        if (parcel.status === ParcelStatus.STORED_AT_HUB && canTransitionParcel(parcel.status, ParcelStatus.READY_FOR_CUSTOMER)) {
+          parcel.status = ParcelStatus.READY_FOR_CUSTOMER;
+          parcel.updated_at = new Date();
+          await parcels.save(parcel);
+        }
+        return { parcel, invoice: existingInvoice, alreadyIssued: true };
+      }
+
+      if (parcel.status === ParcelStatus.STORED_AT_HUB) {
+        if (!canTransitionParcel(parcel.status, ParcelStatus.READY_FOR_CUSTOMER)) {
+          throw new ConflictException('Parcel cannot be prepared for customer collection');
+        }
+        parcel.status = ParcelStatus.READY_FOR_CUSTOMER;
+        parcel.updated_at = new Date();
+        await parcels.save(parcel);
+      } else if (parcel.status !== ParcelStatus.READY_FOR_CUSTOMER) {
+        throw new ConflictException('Parcel is not ready for customer collection');
+      }
+
+      const pricing = this.pricingService.calculate(parcel, new Date());
+      const invoice = await this.invoicesService.create(parcel, pricing, manager);
+      return { parcel, invoice, alreadyIssued: false };
+    });
+  }
+
   async getById(id: string, requester: UserPayload) {
     const parcel = await this.repo.findOne({ where: { id } });
     if (!parcel) throw new NotFoundException('Parcel not found');
