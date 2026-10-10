@@ -23,7 +23,9 @@ function makeService({ recipient = { id: 'recipient-1' }, hub = { id: 'hub-1', i
     { findOne: async () => hub },
     { findOne: async () => recipient },
     undefined,
-    { calculate: () => ({ basePostCost: 18000, elapsedHours: 0, feePercentage: 0.2, calculatedFee: 3600, isExpired: false }) },
+    { resolveBaseCost: async () => ({ basePostCost: 25000, tariffVersionId: 'tariff-v1' }),
+      calculate: () => ({ basePostCost: 18000, elapsedHours: 0, feePercentage: 0.2, calculatedFee: 3600, isExpired: false }),
+      calculateWithActiveTariff: async () => ({ basePostCost: 18000, elapsedHours: 13, feePercentage: 0.4, calculatedFee: 7200, isExpired: false, tariffVersionId: 'tariff-v1', tariffSnapshot: { tariffKey: 'PUDO-N-TARIFF-168H-V1', appliedPercentage: 40 } }) },
     { create: async (parcel, pricing, manager) => ({ parcel_id: parcel.id, hub_id: parcel.current_hub_id, snapshot: { percentage: 30 }, amount: pricing.calculatedFee }) },
   );
   return { service, saved };
@@ -76,7 +78,9 @@ test('hub owner receipt confirmation atomically records custody and creates an i
     { findOne: async () => hub },
     { findOne: async () => ({ id: 'recipient-1' }) },
     { transaction: async (work) => { transactionCalled = true; return work(manager); } },
-    { calculate: (value, now) => ({ basePostCost: value.base_post_cost, elapsedHours: 0, feePercentage: 0.2, calculatedFee: 3600, isExpired: false }) },
+    { resolveBaseCost: async () => ({ basePostCost: 25000, tariffVersionId: 'tariff-v1' }),
+      calculate: (value, now) => ({ basePostCost: value.base_post_cost, elapsedHours: 0, feePercentage: 0.2, calculatedFee: 3600, isExpired: false }),
+      calculateWithActiveTariff: async (value, now) => ({ basePostCost: value.base_post_cost, elapsedHours: 13, actualElapsedHours: 13, feePercentage: 0.4, calculatedFee: 7200, isExpired: false, tariffVersionId: 'tariff-v1', tariffSnapshot: { tariffKey: 'PUDO-N-TARIFF-168H-V1', appliedPercentage: 40 } }) },
     { create: async (value, pricing, transactionManager) => ({ parcel_id: value.id, hub_id: value.current_hub_id, amount: pricing.calculatedFee, snapshot: { percentage: 30 }, manager: transactionManager }) },
   );
 
@@ -117,7 +121,9 @@ test('recipient PUDO request selects an active hub and advances the state machin
     { findOne: async () => hub },
     { findOne: async () => ({ id: 'recipient-1' }) },
     { transaction: async (work) => work(manager) },
-    { calculate: () => ({ basePostCost: 18000, elapsedHours: 0, feePercentage: 0.2, calculatedFee: 3600 }) },
+    { resolveBaseCost: async () => ({ basePostCost: 25000, tariffVersionId: 'tariff-v1' }),
+      calculate: () => ({ basePostCost: 18000, elapsedHours: 0, feePercentage: 0.2, calculatedFee: 3600 }),
+      calculateWithActiveTariff: async () => ({ basePostCost: 18000, elapsedHours: 13, feePercentage: 0.4, calculatedFee: 7200, isExpired: false, tariffVersionId: 'tariff-v1', tariffSnapshot: { tariffKey: 'PUDO-N-TARIFF-168H-V1', appliedPercentage: 40 } }) },
     { create: async () => ({}) },
   );
 
