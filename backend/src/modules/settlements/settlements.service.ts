@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { createHash } from 'node:crypto';
 import { DataSource } from 'typeorm';
@@ -30,7 +30,7 @@ export class SettlementsService {
       throw new BadRequestException('A valid Idempotency-Key of at most 255 characters is required');
     }
     if (![UserRole.ADMIN, UserRole.SUPER_ADMIN].includes(actor.role)) {
-      throw new ConflictException('Only an administrator can reconcile provider-confirmed invoice payments');
+      throw new ForbiddenException('Only an administrator can reconcile provider-confirmed invoice payments');
     }
 
     const operationType = 'settlement.invoice-payment';
