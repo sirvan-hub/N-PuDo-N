@@ -794,7 +794,10 @@ export class ParcelsService {
     const isAdministrator = requester.role === UserRole.ADMIN || requester.role === UserRole.SUPER_ADMIN;
     const isAssignedCourier = parcel.courier_id === requester.sub;
     const isRecipient = parcel.recipient_id === requester.sub || parcel.recipient_phone === requester.phone;
-    if (!isAdministrator && !isAssignedCourier && !isRecipient) {
+    const assignedHubId = parcel.current_hub_id || parcel.proposed_hub_id;
+    const isAssignedHubOwner = requester.role === UserRole.HUB_OWNER && Boolean(assignedHubId) &&
+      Boolean(await this.hubs.findOne({ where: { id: assignedHubId, owner_id: requester.sub } }));
+    if (!isAdministrator && !isAssignedCourier && !isRecipient && !isAssignedHubOwner) {
       throw new ForbiddenException('You do not have access to this parcel');
     }
     return parcel;
