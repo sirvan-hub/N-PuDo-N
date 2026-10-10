@@ -592,31 +592,27 @@ export class ParcelsService {
    * Release is gated by a paid invoice and a valid one-time HUB_TO_RECIPIENT custody
    * transfer. Parcel and transfer locks serialize concurrent verification attempts.
    */
-  async confirmCustomerRelease(parcelId: string, actor: UserPayload, code: string, nationalId?: string) {
-    if (actor.role !== UserRole.HUB_OWNER) {
-      throw new ForbiddenException('Only the assigned hub owner can release a parcel');
-    }
-    if (!/^\d{4,6}$/.test(String(code || ''))) throw new BadRequestException('A 4-6 digit delivery code is required');
+  async confirmCustomerRelease(parcelId: string, actor: UserPayload, code: string, evidenceRef: string, nationalId?: string) {
+    if (actor.role !== UserRole.HUB_OWNER) throw new ForbiddenException('Only the assigned hub owner can verify the collection code');
+    if (!/^\d{6}$/.test(String(code || ''))) throw new BadRequestException('A six-digit delivery code is required');
     if (nationalId && !/^\d{10}$/.test(nationalId)) throw new BadRequestException('National ID must contain 10 digits');
+    if (typeof evidenceRef !== 'string' || evidenceRef.length < 8 || evidenceRef.length > 512 ||
+        /^https?:\/\//i.test(evidenceRef) || evidenceRef.includes('..')) {
+      throw new BadRequestException('A private object-storage evidence reference is required; public URLs are not accepted');
+    }
 
     const result = await this.dataSource.transaction(async (manager) => {
-      const parcels = manager.getRepository(ParcelEntity);
       const parcel = await this.findParcelForUpdate(manager, parcelId);
       if (!parcel) throw new NotFoundException('Parcel not found');
       const hub = parcel.current_hub_id
         ? await manager.getRepository(HubEntity).findOne({ where: { id: parcel.current_hub_id, owner_id: actor.sub } })
         : null;
       if (!hub) throw new ForbiddenException('Parcel is not stored at a hub owned by this user');
-
-      if (parcel.status === ParcelStatus.COLLECTED && parcel.collected_at) {
-        return { parcel, alreadyReleased: true };
-      }
       if (parcel.status !== ParcelStatus.READY_FOR_CUSTOMER) {
         throw new ConflictException('Parcel must be ready for customer collection before release');
       }
       const invoice = await manager.getRepository(InvoiceEntity).findOne({ where: { parcel_id: parcel.id } });
-      if (!invoice) throw new ConflictException('Parcel has no invoice; customer collection cannot be released');
-      if (invoice.status !== PaymentStatus.PAID) {
+      if (!invoice || invoice.status !== PaymentStatus.PAID) {
         throw new ConflictException('Invoice must be PAID before physical parcel release');
       }
 
@@ -625,18 +621,21 @@ export class ParcelsService {
         where: {
           parcel_id: parcel.id,
           transfer_type: CustodyTransferType.HUB_TO_RECIPIENT,
+          receiver_id: parcel.recipient_id,
           status: CustodyTransferStatus.PENDING,
         },
         order: { created_at: 'DESC' },
         ...(manager.connection.options.type === 'postgres' ? { lock: { mode: 'pessimistic_write' as const } } : {}),
       });
       if (!transfer) return { invalidCode: true, codeUnavailable: true };
+      if (transfer.code_verified_at) throw new ConflictException('This delivery code has already been verified');
       if (transfer.expires_at.getTime() <= Date.now()) {
         transfer.status = CustodyTransferStatus.EXPIRED;
         transfer.failure_reason = 'Delivery code expired';
         await transfers.save(transfer);
         return { invalidCode: true, codeExpired: true };
       }
+
       const expected = Buffer.from(transfer.code_hash, 'hex');
       const supplied = Buffer.from(this.hashDeliveryCode(code, transfer.code_salt), 'hex');
       const matches = expected.length === supplied.length && timingSafeEqual(expected, supplied);
@@ -654,46 +653,33 @@ export class ParcelsService {
         const recipient = parcel.recipient_id
           ? await manager.getRepository(UserEntity).findOne({ where: { id: parcel.recipient_id } })
           : null;
-        if (recipient?.national_id && recipient.national_id !== nationalId) {
-          return { nationalIdMismatch: true };
-        }
+        if (recipient?.national_id && recipient.national_id !== nationalId) return { nationalIdMismatch: true };
       }
 
-      const oldStatus = parcel.status;
-      let nextStatus: ParcelStatus = parcel.status;
-      for (const status of [ParcelStatus.CUSTOMER_COLLECTION, ParcelStatus.COLLECTED]) {
-        if (!canTransitionParcel(nextStatus, status)) {
-          throw new ConflictException(`Invalid release transition from ${nextStatus} to ${status}`);
-        }
-        nextStatus = status;
-      }
       const now = new Date();
-      parcel.status = ParcelStatus.COLLECTED;
-      parcel.collected_at = now;
-      parcel.updated_at = now;
-      await parcels.save(parcel);
-
-      transfer.status = CustodyTransferStatus.CONFIRMED;
-      transfer.consumed_at = now;
-      transfer.completed_at = now;
+      transfer.code_verified_at = now;
+      transfer.hub_handover_evidence_ref = evidenceRef;
       await transfers.save(transfer);
-
-      const postgres = manager.connection.options.type === 'postgres';
-      const placeholders = postgres
-        ? '$1, $2, $3, \'parcel\', $4, \'PARCEL_DELIVERY_VERIFIED_AND_RELEASED\', $5, $6, $7, $8, $9'
-        : '?, ?, ?, \'parcel\', ?, \'PARCEL_DELIVERY_VERIFIED_AND_RELEASED\', ?, ?, ?, ?, ?';
-      await manager.query(
-        `INSERT INTO audit_logs (id, actor_id, actor_role, entity_type, entity_id, action, old_state, new_state, transaction_id, correlation_id, metadata)
-         VALUES (${placeholders})`,
-        [
-          randomUUID(), actor.sub, actor.role, parcel.id,
-          JSON.stringify({ status: oldStatus }),
-          JSON.stringify({ status: ParcelStatus.COLLECTED, collectedAt: now.toISOString(), verifiedByOneTimeCode: true }),
-          transfer.id, `delivery:${parcel.id}:${now.getTime()}`,
-          JSON.stringify({ invoiceId: invoice.id, custodyTransferId: transfer.id, nationalIdLast4: nationalId?.slice(-4) ?? null }),
-        ],
-      );
-      return { parcel, alreadyReleased: false, invoiceId: invoice.id, custodyTransferId: transfer.id, releasedAt: now.toISOString() };
+      await manager.getRepository(AuditLogEntity).save(manager.getRepository(AuditLogEntity).create({
+        actor_id: actor.sub,
+        actor_role: actor.role,
+        entity_type: 'custody_transfer',
+        entity_id: transfer.id,
+        action: 'DELIVERY_CODE_VERIFIED_HUB_EVIDENCE_PENDING',
+        old_state: { status: transfer.status, codeVerifiedAt: null },
+        new_state: { status: transfer.status, codeVerifiedAt: now.toISOString(), hubEvidenceRef: evidenceRef },
+        transaction_id: transfer.id,
+        correlation_id: `delivery-code-verified:${transfer.id}`,
+        metadata: { parcelId: parcel.id, invoiceId: invoice.id, awaitsRecipientEvidence: true },
+      }));
+      return {
+        verified: true,
+        awaitingRecipientEvidence: true,
+        parcelId: parcel.id,
+        invoiceId: invoice.id,
+        custodyTransferId: transfer.id,
+        codeVerifiedAt: now.toISOString(),
+      };
     });
 
     if ('invalidCode' in result) {
@@ -703,6 +689,90 @@ export class ParcelsService {
     }
     if ('nationalIdMismatch' in result) throw new ForbiddenException('National ID does not match the registered recipient');
     return result;
+  }
+
+  async confirmRecipientHandover(parcelId: string, evidenceRef: string, actor: UserPayload) {
+    if (actor.role !== UserRole.RECIPIENT) throw new ForbiddenException('Only the recipient can confirm final handover');
+    if (typeof evidenceRef !== 'string' || evidenceRef.length < 8 || evidenceRef.length > 512 ||
+        /^https?:\/\//i.test(evidenceRef) || evidenceRef.includes('..')) {
+      throw new BadRequestException('A private object-storage evidence reference is required; public URLs are not accepted');
+    }
+
+    return this.dataSource.transaction(async (manager) => {
+      const parcel = await this.findParcelForUpdate(manager, parcelId);
+      if (!parcel) throw new NotFoundException('Parcel not found');
+      if (parcel.recipient_id !== actor.sub && parcel.recipient_phone !== actor.phone) {
+        throw new ForbiddenException('Only the registered recipient can confirm final handover');
+      }
+      if (parcel.status !== ParcelStatus.READY_FOR_CUSTOMER) {
+        throw new ConflictException('Parcel is not awaiting final customer handover');
+      }
+      const invoice = await manager.getRepository(InvoiceEntity).findOne({ where: { parcel_id: parcel.id } });
+      if (!invoice || invoice.status !== PaymentStatus.PAID) throw new ConflictException('Invoice must be PAID before final handover');
+
+      const transfers = manager.getRepository(CustodyTransferEntity);
+      const transfer = await transfers.findOne({
+        where: {
+          parcel_id: parcel.id,
+          transfer_type: CustodyTransferType.HUB_TO_RECIPIENT,
+          receiver_id: actor.sub,
+          status: CustodyTransferStatus.PENDING,
+        },
+        order: { created_at: 'DESC' },
+        ...(manager.connection.options.type === 'postgres' ? { lock: { mode: 'pessimistic_write' as const } } : {}),
+      });
+      if (!transfer || !transfer.code_verified_at || !transfer.hub_handover_evidence_ref) {
+        throw new ConflictException('Hub must verify the one-time code and submit handover evidence first');
+      }
+      if (transfer.expires_at.getTime() <= Date.now()) {
+        transfer.status = CustodyTransferStatus.EXPIRED;
+        transfer.failure_reason = 'Delivery code expired before recipient evidence';
+        await transfers.save(transfer);
+        throw new UnauthorizedException('Delivery code expired before final handover was confirmed');
+      }
+      if (transfer.recipient_handover_evidence_ref) {
+        if (transfer.recipient_handover_evidence_ref === evidenceRef) {
+          return { parcel, transfer, alreadyConfirmed: parcel.status === ParcelStatus.COLLECTED };
+        }
+        throw new ConflictException('Recipient handover evidence has already been submitted');
+      }
+
+      const now = new Date();
+      const oldStatus = parcel.status;
+      if (!canTransitionParcel(parcel.status, ParcelStatus.CUSTOMER_COLLECTION) ||
+          !canTransitionParcel(ParcelStatus.CUSTOMER_COLLECTION, ParcelStatus.COLLECTED)) {
+        throw new ConflictException('Invalid final handover state transition');
+      }
+      parcel.status = ParcelStatus.COLLECTED;
+      parcel.collected_at = now;
+      parcel.updated_at = now;
+      transfer.recipient_handover_evidence_ref = evidenceRef;
+      transfer.recipient_handover_at = now;
+      transfer.status = CustodyTransferStatus.CONFIRMED;
+      transfer.consumed_at = now;
+      transfer.completed_at = now;
+      const savedParcel = await manager.getRepository(ParcelEntity).save(parcel);
+      const savedTransfer = await transfers.save(transfer);
+      await manager.getRepository(AuditLogEntity).save(manager.getRepository(AuditLogEntity).create({
+        actor_id: actor.sub,
+        actor_role: actor.role,
+        entity_type: 'parcel',
+        entity_id: parcel.id,
+        action: 'PARCEL_FINAL_HANDOVER_CONFIRMED',
+        old_state: { status: oldStatus },
+        new_state: {
+          status: ParcelStatus.COLLECTED,
+          collectedAt: now.toISOString(),
+          codeVerifiedAt: transfer.code_verified_at?.toISOString(),
+          hubEvidenceRef: transfer.hub_handover_evidence_ref,
+          recipientEvidenceRef: evidenceRef,
+        },
+        transaction_id: transfer.id,
+        correlation_id: `parcel-final-handover:${parcel.id}`,
+        metadata: { invoiceId: invoice.id, custodyTransferId: transfer.id, dualPhotoConfirmation: true },
+      }));
+      return { parcel: savedParcel, transfer: savedTransfer, alreadyConfirmed: false, collectedAt: now.toISOString() };
+    });
   }
 
   async getById(id: string, requester: UserPayload) {
