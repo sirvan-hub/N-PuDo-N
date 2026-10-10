@@ -27,10 +27,10 @@ export class PayoutPreferencesService {
       if (typeof input.destinationToken !== 'string' || input.destinationToken.trim().length < 8 || input.destinationToken.length > 160) {
         throw new BadRequestException('destinationToken must be an opaque provider/reference token, not a bank account number');
       }
-      if (!/^\\d{4}$/.test(input.destinationLast4 || '')) {
+      if (!/^\d{4}$/.test(input.destinationLast4 || '')) {
         throw new BadRequestException('destinationLast4 must contain exactly four digits');
       }
-      if (/^\\d{16,}$/.test(input.destinationToken) || /^IR\\d{24}$/i.test(input.destinationToken)) {
+      if (/^\d{16,}$/.test(input.destinationToken) || /^IR\d{24}$/i.test(input.destinationToken)) {
         throw new BadRequestException('Do not submit a full card number or IBAN; use an opaque destination token');
       }
     }
