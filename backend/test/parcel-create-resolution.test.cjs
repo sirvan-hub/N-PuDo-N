@@ -119,6 +119,38 @@ test('hub receipt evidence alone does not finalize custody before courier confir
   assert.equal(result.invoiceDeferredUntilCollectionRequest, false);
 });
 
+test('custody is finalized only when courier and hub evidence both exist', async () => {
+  const parcel = {
+    id: 'parcel-dual-1', recipient_id: 'recipient-1', recipient_phone: dto.recipient_phone,
+    proposed_hub_id: 'hub-1', current_hub_id: null, delivered_to_hub_at: null,
+    courier_id: 'courier-1', status: ParcelStatus.HANDOVER_IN_PROGRESS,
+    hub_receipt_evidence_ref: 'private-object-key-hub-001', hub_receipt_confirmed_at: new Date(),
+  };
+  const hub = { id: 'hub-1', owner_id: 'owner-1', is_active: true, is_temporarily_closed: false };
+  const manager = {
+    connection: { options: { type: 'sqlite' } },
+    getRepository(entity) {
+      if (entity === ParcelEntity) return { findOne: async () => parcel, save: async (value) => value };
+      if (entity === HubEntity) return { findOne: async () => hub };
+      if (entity === AuditLogEntity) return { create: (value) => value, save: async (value) => value };
+      throw new Error('Unexpected repository');
+    },
+  };
+  const service = new ParcelsService(
+    { findOne: async () => parcel }, { findOne: async () => hub }, { findOne: async () => null },
+    { transaction: async (work) => work(manager) },
+    { resolveBaseCost: async () => ({}), calculate: () => ({}), calculateWithActiveTariff: async () => ({}) },
+    { create: async () => ({}) },
+  );
+  const result = await service.confirmCourierHandover('parcel-dual-1', 'private-object-key-courier-001', {
+    sub: 'courier-1', phone: '+989120000099', role: UserRole.COURIER, is_verified: true,
+  });
+  assert.equal(result.custodyConfirmed, true);
+  assert.equal(result.parcel.status, ParcelStatus.STORED_AT_HUB);
+  assert.equal(result.parcel.current_hub_id, 'hub-1');
+  assert.ok(result.parcel.delivered_to_hub_at instanceof Date);
+});
+
 test('only a hub owner can confirm receipt', async () => {
   const { service } = makeService();
   await assert.rejects(
