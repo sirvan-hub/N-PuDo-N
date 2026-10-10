@@ -26,6 +26,12 @@ class CustodyEvidenceDto {
   evidence_ref: string;
 }
 
+class VerifyEntryFeePaymentDto {
+  @IsString()
+  @Length(1, 160)
+  provider_reference: string;
+}
+
 class ConfirmCustomerReleaseDto {
   @IsString()
   @Matches(/^\d{6}$/)
@@ -72,6 +78,22 @@ export class ParcelsController {
   @ApiResponse({ status: 201, description: 'Parcel created' })
   async create(@Body() dto: CreateParcelDto, @CurrentUser('sub') courierId: string) {
     return this.parcelsService.create(dto, courierId);
+  }
+
+  @Post(':id/entry-fee/receipt')
+  @Roles(UserRole.RECIPIENT)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Submit a private receipt reference for the separate Pudo-N network-entry fee' })
+  async submitNetworkEntryReceipt(@Param('id') id: string, @Body() body: CustodyEvidenceDto, @CurrentUser() user: UserPayload) {
+    return this.parcelsService.submitNetworkEntryReceipt(id, body.evidence_ref, user);
+  }
+
+  @Post('entry-fee-charges/:id/verify-payment')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Record a network-entry payment already verified outside the app; this endpoint does not contact a bank' })
+  async verifyNetworkEntryPayment(@Param('id') id: string, @Body() body: VerifyEntryFeePaymentDto, @CurrentUser() user: UserPayload) {
+    return this.parcelsService.verifyNetworkEntryPayment(id, body.provider_reference, user);
   }
 
   @Post(':id/request-pudo')
