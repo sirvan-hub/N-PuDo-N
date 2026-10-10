@@ -175,6 +175,31 @@ export class HubPayoutRequestsService {
     });
   }
 
+  async listPendingPayouts(actor: UserPayload) {
+    if (![UserRole.ADMIN, UserRole.SUPER_ADMIN].includes(actor.role)) {
+      throw new ForbiddenException('Only an administrator can read the payout review queue');
+    }
+    const rows = await this.dataSource.getRepository(SettlementTransactionEntity).createQueryBuilder('s')
+      .where('s.transaction_type IN (:...types)', {
+        types: [SettlementTransactionType.HUB_PAYOUT, SettlementTransactionType.COURIER_PAYOUT],
+      })
+      .andWhere('s.status = :status', { status: SettlementTransactionStatus.REQUESTED })
+      .orderBy('s.created_at', 'ASC')
+      .addOrderBy('s.id', 'ASC')
+      .getMany();
+    return rows.map((row) => ({
+      requestId: row.id,
+      beneficiaryType: row.transaction_type === SettlementTransactionType.COURIER_PAYOUT ? 'COURIER' : 'HUB',
+      courierId: row.transaction_type === SettlementTransactionType.COURIER_PAYOUT ? row.requested_by : null,
+      hubId: row.hub_id,
+      amount: Number(row.amount),
+      currencyUnit: row.currency_unit,
+      status: row.status,
+      requestedBy: row.requested_by,
+      createdAt: row.created_at,
+    }));
+  }
+
   async listForHub(hubId: string, actor: UserPayload) {
     const hub = await this.dataSource.getRepository(HubEntity).findOne({ where: { id: hubId } });
     if (!hub) throw new NotFoundException('Hub not found');
