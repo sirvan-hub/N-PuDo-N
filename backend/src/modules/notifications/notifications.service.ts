@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, LessThan, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { NotificationEntity } from '../../database/entities/notification.entity';
 
 @Injectable()
@@ -16,14 +16,12 @@ export class NotificationsService {
 
   async listForUser(userId: string, limit = 50): Promise<NotificationEntity[]> {
     const now = new Date();
-    return this.notifications.find({
-      where: [
-        { user_id: userId, expires_at: IsNull() },
-        { user_id: userId, expires_at: LessThan(new Date(now.getTime() + 1)) },
-      ],
+    const rows = await this.notifications.find({
+      where: { user_id: userId },
       order: { created_at: 'DESC' },
       take: Math.min(Math.max(limit, 1), 100),
-    }).then((rows) => rows.filter((row) => !row.expires_at || row.expires_at.getTime() > now.getTime()));
+    });
+    return rows.filter((row) => !row.expires_at || row.expires_at.getTime() > now.getTime());
   }
 
   async markRead(userId: string, notificationId: string): Promise<NotificationEntity> {
