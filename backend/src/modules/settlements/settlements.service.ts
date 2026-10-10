@@ -5,6 +5,10 @@ import { DataSource } from 'typeorm';
 import { IdempotencyRecordEntity, IdempotencyState } from '../../database/entities/idempotency-record.entity';
 import { InvoiceEntity, PaymentStatus } from '../../database/entities/invoice.entity';
 import { ParcelEntity } from '../../database/entities/parcel.entity';
+import { HubEntity } from '../../database/entities/hub.entity';
+import { WalletEntity } from '../../database/entities/wallet.entity';
+import { WalletTransactionEntity, WalletBucket, WalletTransactionType } from '../../database/entities/wallet-transaction.entity';
+import { RevenueAllocationEntity, RevenueBeneficiaryType } from '../../database/entities/revenue-allocation.entity';
 import { SettlementTransactionEntity, SettlementTransactionStatus, SettlementTransactionType } from '../../database/entities/settlement-transaction.entity';
 import { UserPayload, UserRole } from '../../common/interfaces/user-payload.interface';
 
@@ -16,6 +20,76 @@ export class SettlementsService {
    * Records a payment already verified by the payment provider or by an authorized reconciliation process.
    * This method does not contact a payment provider and must not be used as proof that a provider payment occurred.
    */
+  private async creditRevenueShare(
+    manager: any,
+    userId: string,
+    amount: number,
+    invoiceId: string,
+    actorId: string,
+    beneficiaryType: RevenueBeneficiaryType,
+  ) {
+    const operationType = `revenue.allocate.${beneficiaryType.toLowerCase()}`;
+    const actorScope = `revenue:invoice:${invoiceId}`;
+    const idempotencyKey = `invoice:${invoiceId}:${beneficiaryType.toLowerCase()}`;
+    const requestHash = createHash('sha256')
+      .update(JSON.stringify({ invoiceId, userId, amount, operationType }))
+      .digest('hex');
+    const idemRepo = manager.getRepository(IdempotencyRecordEntity);
+    await idemRepo.createQueryBuilder().insert().values({
+      actor_scope: actorScope,
+      operation_type: operationType,
+      idempotency_key: idempotencyKey,
+      request_hash: requestHash,
+      state: IdempotencyState.IN_PROGRESS,
+    }).orIgnore().execute();
+    const allocationIdem = await idemRepo.findOne({
+      where: { actor_scope: actorScope, operation_type: operationType, idempotency_key: idempotencyKey },
+    });
+    if (!allocationIdem || allocationIdem.request_hash !== requestHash) {
+      throw new ConflictException('Unable to establish revenue allocation idempotency record');
+    }
+    if (allocationIdem.state === IdempotencyState.COMPLETED) return;
+
+    const walletRepo = manager.getRepository(WalletEntity);
+    await walletRepo.createQueryBuilder().insert().values({ user_id: userId }).orIgnore().execute();
+    const postgres = manager.connection.options.type === 'postgres';
+    const wallet = await walletRepo.findOne({
+      where: { user_id: userId },
+      ...(postgres ? { lock: { mode: 'pessimistic_write' as const } } : {}),
+    });
+    if (!wallet) throw new ConflictException('Unable to load wallet for revenue allocation');
+    const nextBalance = Number(wallet.balance) + amount;
+    const nextTotalEarned = Number(wallet.total_earned) + amount;
+    if (!Number.isSafeInteger(nextBalance) || !Number.isSafeInteger(nextTotalEarned) ||
+        nextBalance > 2_147_483_647 || nextTotalEarned > 2_147_483_647) {
+      throw new ConflictException('Revenue allocation exceeds wallet balance limits');
+    }
+    wallet.balance = nextBalance;
+    wallet.total_earned = nextTotalEarned;
+    await walletRepo.save(wallet);
+
+    await manager.getRepository(WalletTransactionEntity).save(
+      manager.getRepository(WalletTransactionEntity).create({
+        wallet_id: wallet.id,
+        actor_id: actorId,
+        idempotency_record_id: allocationIdem.id,
+        transaction_type: WalletTransactionType.EARNING_CREDIT,
+        bucket: WalletBucket.AVAILABLE,
+        amount: String(amount),
+        bucket_balance_after: String(nextBalance),
+        currency_unit: 'TOMAN',
+        reference_type: 'invoice',
+        reference_id: invoiceId,
+        description: `Pudo-N ${beneficiaryType.toLowerCase()} share for paid invoice`,
+      }),
+    );
+    allocationIdem.state = IdempotencyState.COMPLETED;
+    allocationIdem.response_status = 200;
+    allocationIdem.response_body = { invoiceId, userId, amount, balance: nextBalance };
+    allocationIdem.completed_at = new Date();
+    await idemRepo.save(allocationIdem);
+  }
+
   async recordVerifiedInvoicePayment(
     invoiceId: string,
     providerReference: string,
@@ -79,6 +153,45 @@ export class SettlementsService {
       if (duplicateReference) throw new ConflictException('Provider reference has already been recorded');
 
       const now = new Date();
+      const allocationSnapshot = invoice.revenue_allocation_snapshot as any;
+      let revenueAllocationStatus = 'LEGACY_REQUIRES_RECONCILIATION';
+      if (allocationSnapshot?.allocationStatus === 'SNAPSHOTTED_PENDING_PAYMENT') {
+        const courierShare = Number(invoice.courier_share);
+        const hubShare = Number(invoice.hub_owner_share);
+        const platformShare = Number(invoice.platform_fee);
+        if (![courierShare, hubShare, platformShare].every((amount) => Number.isSafeInteger(amount) && amount >= 0) ||
+            courierShare + hubShare + platformShare !== Number(invoice.total_amount)) {
+          throw new ConflictException('Invoice revenue allocation snapshot is invalid or does not balance');
+        }
+        if (!parcel.courier_id) throw new ConflictException('Parcel has no assigned courier for revenue allocation');
+        const hub = await manager.getRepository(HubEntity).findOne({ where: { id: invoice.hub_id } });
+        if (!hub?.owner_id) throw new ConflictException('Invoice hub has no owner for revenue allocation');
+
+        const split = [
+          { type: RevenueBeneficiaryType.COURIER, userId: parcel.courier_id, percent: 30, amount: courierShare },
+          { type: RevenueBeneficiaryType.HUB, userId: hub.owner_id, percent: 30, amount: hubShare },
+          { type: RevenueBeneficiaryType.PLATFORM, userId: null, percent: 40, amount: platformShare },
+        ];
+        const allocations = manager.getRepository(RevenueAllocationEntity);
+        for (const item of split) {
+          await allocations.save(allocations.create({
+            charge_type: 'STORAGE_COLLECTION',
+            charge_id: invoice.id,
+            parcel_id: parcel.id,
+            beneficiary_type: item.type,
+            beneficiary_id: item.userId,
+            percentage: item.percent,
+            amount: String(item.amount),
+            currency_unit: 'TOMAN',
+            allocation_snapshot: allocationSnapshot,
+          }));
+          if (item.userId && item.amount > 0) {
+            await this.creditRevenueShare(manager, item.userId, item.amount, invoice.id, actor.sub, item.type);
+          }
+        }
+        revenueAllocationStatus = 'ALLOCATED_30_30_40';
+      }
+
       invoice.status = PaymentStatus.PAID;
       invoice.paid_at = now;
       await invoiceRepo.save(invoice);
@@ -106,7 +219,7 @@ export class SettlementsService {
         [
           randomUUID(), actor.sub, actor.role, invoice.id,
           JSON.stringify({ status: PaymentStatus.PENDING }),
-          JSON.stringify({ status: PaymentStatus.PAID, paidAt: now.toISOString(), amount: invoice.total_amount }),
+          JSON.stringify({ status: PaymentStatus.PAID, paidAt: now.toISOString(), amount: invoice.total_amount, revenueAllocationStatus }),
           settlement.id, idempotencyKey,
           JSON.stringify({ providerReference: providerReference.trim(), parcelId: parcel.id }),
         ],
