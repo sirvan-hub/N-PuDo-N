@@ -552,6 +552,17 @@ export class ParcelsService {
       await this.allocateNetworkEntryRevenue(manager, entryCharge, parcel, hub, actor.sub);
       parcel.updated_at = new Date();
       const saved = await parcels.save(parcel);
+      const notifications = manager.getRepository(NotificationEntity);
+      for (const userId of [parcel.recipient_id, parcel.courier_id, hub.owner_id].filter((value): value is string => Boolean(value))) {
+        await notifications.save(notifications.create({
+          user_id: userId,
+          category: 'HUB_SELECTED',
+          title: 'هاب مرسوله مشخص شد',
+          body: `هاب ${hub.name} برای مرسوله ${parcel.tracking_code} انتخاب شد. سفیر و هاب می‌توانند هماهنگی تحویل را انجام دهند.`,
+          reference_type: 'parcel',
+          reference_id: parcel.id,
+        }));
+      }
       await manager.getRepository(AuditLogEntity).save(manager.getRepository(AuditLogEntity).create({
         actor_id: actor.sub,
         actor_role: actor.role,
