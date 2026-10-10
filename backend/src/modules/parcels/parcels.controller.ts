@@ -32,6 +32,11 @@ class ConfirmCustomerReleaseDto {
   @Matches(/^\d{4,6}$/)
   deliveryCode: string;
 
+  @IsString()
+  @Length(8, 512)
+  @Matches(/^(?!https?:\/\/)(?!.*\.\.).+$/i)
+  evidence_ref: string;
+
   @IsOptional()
   @IsString()
   @Matches(/^\d{10}$/)
@@ -124,7 +129,15 @@ export class ParcelsController {
     @Body() body: ConfirmCustomerReleaseDto,
     @CurrentUser() user: UserPayload,
   ) {
-    return this.parcelsService.confirmCustomerRelease(id, user, body.deliveryCode, body.nationalId);
+    return this.parcelsService.confirmCustomerRelease(id, user, body.deliveryCode, body.evidence_ref, body.nationalId);
+  }
+
+  @Post(':id/confirm-recipient-handover')
+  @Roles(UserRole.RECIPIENT)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Recipient confirms final handover with photo evidence after the hub verifies the one-time code' })
+  async confirmRecipientHandover(@Param('id') id: string, @Body() body: CustodyEvidenceDto, @CurrentUser() user: UserPayload) {
+    return this.parcelsService.confirmRecipientHandover(id, body.evidence_ref, user);
   }
 
   @Get(':id')
