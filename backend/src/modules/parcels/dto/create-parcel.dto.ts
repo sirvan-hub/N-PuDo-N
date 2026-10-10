@@ -1,7 +1,11 @@
-import { IsString, IsInt, Min, IsOptional, IsNumber, IsIn } from 'class-validator';
+import { IsString, IsInt, Min, IsOptional, IsNumber, IsIn, IsUUID } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateParcelDto {
+  @ApiProperty({ description: 'ID of the recipient invitation that was explicitly accepted' })
+  @IsUUID()
+  invitation_id: string;
+
   @ApiProperty({ example: 'IR1405000001' })
   @IsString()
   tracking_code: string;
