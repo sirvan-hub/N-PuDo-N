@@ -1,6 +1,6 @@
 import { FormEvent, useState } from 'react';
 
-type UserRole = 'COURIER' | 'HUB_OWNER' | 'RECIPIENT' | 'ADMIN' | string;
+type UserRole = 'COURIER' | 'HUB_OWNER' | 'RECIPIENT' | 'ADMIN' | 'SUPER_ADMIN' | string;
 type AuthUser = { sub?: string; id?: string; phone?: string; role: UserRole; is_verified?: boolean };
 type AuthResponse = { access_token: string; user: AuthUser };
 
@@ -97,7 +97,8 @@ export default function App() {
     setNotice('');
   }
 
-  const role = session ? roleInfo[session.user.role] : undefined;
+  const normalizedRole = session?.user.role === 'SUPER_ADMIN' ? 'ADMIN' : session?.user.role;
+  const role = normalizedRole ? roleInfo[normalizedRole] : undefined;
 
   return (
     <main className="app-shell">
@@ -156,7 +157,7 @@ export default function App() {
           <h2 className="section-heading">پنل کاری شما</h2>
           <div className="panel-grid">
             {Object.entries(roleInfo).map(([key, item]) => {
-              const active = key === session.user.role;
+              const active = key === normalizedRole;
               return <article className={`panel-card ${active ? 'active' : 'locked'}`} key={key}>
                 <div className="panel-icon">{item.icon}</div><span className="panel-status">{active ? 'پنل شما' : 'دسترسی محدود'}</span>
                 <h3>{item.title}</h3><p>{item.description}</p>
