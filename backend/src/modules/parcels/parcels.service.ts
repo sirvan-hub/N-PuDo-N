@@ -108,10 +108,24 @@ export class ParcelsService {
         }
         nextStatus = status;
       }
+      const oldStatus = parcel.status;
       parcel.proposed_hub_id = hub.id;
       parcel.status = nextStatus;
       parcel.updated_at = new Date();
-      return parcels.save(parcel);
+      const saved = await parcels.save(parcel);
+      await manager.getRepository(AuditLogEntity).save(manager.getRepository(AuditLogEntity).create({
+        actor_id: actor.sub,
+        actor_role: actor.role,
+        entity_type: 'parcel',
+        entity_id: parcel.id,
+        action: 'PARCEL_PUDO_HUB_SELECTED',
+        old_state: { status: oldStatus, proposedHubId: null },
+        new_state: { status: nextStatus, proposedHubId: hub.id },
+        transaction_id: parcel.id,
+        correlation_id: `parcel-stage:${parcel.id}:${nextStatus}`,
+        metadata: { stage: 'PUDO_HUB_SELECTION' },
+      }));
+      return saved;
     });
   }
 
@@ -160,6 +174,18 @@ export class ParcelsService {
       parcel.status = ParcelStatus.STORED_AT_HUB;
       parcel.updated_at = receivedAt;
       const savedParcel = await parcels.save(parcel);
+      await manager.getRepository(AuditLogEntity).save(manager.getRepository(AuditLogEntity).create({
+        actor_id: actor.sub,
+        actor_role: actor.role,
+        entity_type: 'parcel',
+        entity_id: parcel.id,
+        action: 'PARCEL_HUB_CUSTODY_CONFIRMED',
+        old_state: { status: 'PRE_HUB_CUSTODY', currentHubId: null },
+        new_state: { status: ParcelStatus.STORED_AT_HUB, currentHubId: hub.id, receivedAt: receivedAt.toISOString() },
+        transaction_id: parcel.id,
+        correlation_id: `parcel-stage:${parcel.id}:HUB_RECEIVED`,
+        metadata: { stage: 'HUB_RECEIPT', hubId: hub.id },
+      }));
 
       // Final storage pricing is calculated when the recipient requests collection.
       return { parcel: savedParcel, invoice: null, alreadyConfirmed: false, invoiceDeferredUntilCollectionRequest: true };
@@ -195,9 +221,22 @@ export class ParcelsService {
         if (!canTransitionParcel(parcel.status, ParcelStatus.READY_FOR_CUSTOMER)) {
           throw new ConflictException('Parcel cannot be prepared for customer collection');
         }
+        const previousStatus = parcel.status;
         parcel.status = ParcelStatus.READY_FOR_CUSTOMER;
         parcel.updated_at = new Date();
         await parcels.save(parcel);
+        await manager.getRepository(AuditLogEntity).save(manager.getRepository(AuditLogEntity).create({
+          actor_id: actor.sub,
+          actor_role: actor.role,
+          entity_type: 'parcel',
+          entity_id: parcel.id,
+          action: 'PARCEL_READY_FOR_CUSTOMER',
+          old_state: { status: previousStatus },
+          new_state: { status: ParcelStatus.READY_FOR_CUSTOMER },
+          transaction_id: parcel.id,
+          correlation_id: `parcel-stage:${parcel.id}:READY_FOR_CUSTOMER`,
+          metadata: { stage: 'CUSTOMER_COLLECTION_REQUESTED' },
+        }));
       } else if (parcel.status !== ParcelStatus.READY_FOR_CUSTOMER) {
         throw new ConflictException('Parcel is not ready for customer collection');
       }
@@ -283,7 +322,6 @@ export class ParcelsService {
     const salt = randomBytes(16).toString('hex');
     const requestedAt = new Date();
     const expiresAt = new Date(requestedAt.getTime() + 10 * 60_000);
-    const transferRepository = this.dataSource.getRepository(CustodyTransferEntity);
     const transfer = await this.dataSource.transaction(async (manager) => {
       const lockedParcel = await this.findParcelForUpdate(manager, parcelId);
       if (!lockedParcel || lockedParcel.recipient_id !== actor.sub ||
