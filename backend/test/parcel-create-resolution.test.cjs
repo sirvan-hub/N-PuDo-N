@@ -7,6 +7,7 @@ const { ParcelEntity } = require('../dist/database/entities/parcel.entity');
 const { HubEntity } = require('../dist/database/entities/hub.entity');
 const { InvoiceEntity } = require('../dist/database/entities/invoice.entity');
 const { CustodyTransferEntity, CustodyTransferStatus, CustodyTransferType } = require('../dist/database/entities/custody-transfer.entity');
+const { AuditLogEntity } = require('../dist/database/entities/audit-log.entity');
 const { UserRole } = require('../dist/common/interfaces/user-payload.interface');
 
 const dto = {
@@ -161,6 +162,7 @@ test('recipient collection request issues invoice using elapsed custody tariff a
       if (entity === InvoiceEntity) return {
         findOne: async () => invoice,
       };
+      if (entity === AuditLogEntity) return { create: (value) => value, save: async (value) => value };
       throw new Error('Unexpected repository');
     },
   };
@@ -232,6 +234,7 @@ test('expired storage request records expiry and does not issue an invoice', asy
     getRepository(entity) {
       if (entity === ParcelEntity) return { findOne: async () => parcel, save: async (value) => value };
       if (entity === InvoiceEntity) return { findOne: async () => null };
+      if (entity === AuditLogEntity) return { create: (value) => value, save: async (value) => value };
       throw new Error('Unexpected repository');
     },
   };
