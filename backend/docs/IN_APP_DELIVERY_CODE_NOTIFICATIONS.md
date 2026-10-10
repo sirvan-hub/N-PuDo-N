@@ -29,11 +29,18 @@ The one-hour lifetime is the approved product policy and is covered by `backend/
 3. The recipient opens `GET /notifications` in their signed-in account to view the
    code. `POST /notifications/:id/read` marks the message as read.
 4. The hub owner calls `POST /parcels/:id/confirm-customer-release` with
-   `deliveryCode` and optional `nationalId`.
+   `deliveryCode`, a private `evidence_ref` for the hub handover, and optional
+   `nationalId`. A successful code check records verification and hub evidence but
+   does **not** mark the parcel collected.
 5. If a national ID is supplied and a reference ID is stored for the recipient, it
    must match. The code remains mandatory regardless of national-ID handling.
-6. A successful one-time verification marks the custody transfer `CONFIRMED` and
-   the parcel `COLLECTED` in one database transaction and writes an audit event.
+6. The recipient then calls `POST /parcels/:id/confirm-recipient-handover` with
+   their private `evidence_ref`. Only after this recipient-side evidence is saved
+   does the backend mark the transfer `CONFIRMED` and parcel `COLLECTED` in one
+   transaction, with an audit event. Repeating the same final evidence request is
+   idempotent.
+
+The `evidence_ref` values must refer to private images; public URLs are rejected. The current branch has not yet completed the private image-upload/storage adapter, so these APIs record references but do not themselves prove that a fresh camera photo exists.
 
 The in-app message is an interim delivery channel, not account-login OTP. It assumes
 the recipient can sign in to their existing account. Do not treat code generation
