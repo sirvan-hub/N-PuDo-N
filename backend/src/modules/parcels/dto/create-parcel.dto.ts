@@ -18,7 +18,7 @@ export class CreateParcelDto {
   @IsString()
   recipient_address: string;
 
-  @ApiProperty({ example: 50000, description: 'هزینه پایه پست به ریال' })
+  @ApiProperty({ example: 18000, description: 'هزینه پایه پست بر حسب تومان؛ باید با اندازه بسته و نسخه تعرفه مصوب تطبیق داده شود' })
   @IsInt()
   @Min(0)
   base_post_cost: number;
