@@ -30,8 +30,12 @@ export class ParcelsService {
       throw new BadRequestException('Proposed hub does not exist or is not accepting parcels');
     }
 
+    const packageSize = dto.package_size || 'MEDIUM';
+    const basePrice = await this.pricingService.resolveBaseCost(packageSize, new Date());
     const parcel = this.repo.create({
       ...dto,
+      package_size: packageSize,
+      base_post_cost: basePrice.basePostCost,
       recipient_id: recipient.id,
       current_hub_id: null,
       courier_id: courierId,
@@ -170,7 +174,13 @@ export class ParcelsService {
         throw new ConflictException('Parcel is not ready for customer collection');
       }
 
-      const pricing = this.pricingService.calculate(parcel, new Date());
+      const pricing = await this.pricingService.calculateWithActiveTariff(parcel, new Date());
+      if (pricing.isExpired) {
+        parcel.expired_at = parcel.expired_at ?? new Date();
+        parcel.updated_at = new Date();
+        await parcels.save(parcel);
+        return { parcel, invoice: null, expired: true, reason: 'STORAGE_LIMIT_REACHED' };
+      }
       const invoice = await this.invoicesService.create(parcel, pricing, manager);
       return { parcel, invoice, alreadyIssued: false };
     });
