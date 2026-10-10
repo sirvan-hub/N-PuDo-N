@@ -42,6 +42,44 @@ export class ParcelsService {
     return this.repo.save(parcel);
   }
 
+  async requestPudo(parcelId: string, hubId: string, actor: UserPayload) {
+    if (actor.role !== UserRole.RECIPIENT) {
+      throw new ForbiddenException('Only the parcel recipient can request PUDO');
+    }
+    if (!hubId || typeof hubId !== 'string') throw new BadRequestException('hubId is required');
+
+    return this.dataSource.transaction(async (manager) => {
+      const parcels = manager.getRepository(ParcelEntity);
+      const hubs = manager.getRepository(HubEntity);
+      const parcel = await parcels.findOne({ where: { id: parcelId }, lock: { mode: 'pessimistic_write' } });
+      if (!parcel) throw new NotFoundException('Parcel not found');
+      if (parcel.recipient_id !== actor.sub && parcel.recipient_phone !== actor.phone) {
+        throw new ForbiddenException('Only the parcel recipient can request PUDO for this parcel');
+      }
+
+      const hub = await hubs.findOne({ where: { id: hubId } });
+      if (!hub || !hub.is_active || hub.is_temporarily_closed) {
+        throw new BadRequestException('Selected hub does not exist or is not accepting parcels');
+      }
+      if (parcel.status === ParcelStatus.HUB_SELECTED && parcel.proposed_hub_id === hub.id) return parcel;
+      if (parcel.status !== ParcelStatus.DELIVERY_ATTEMPT) {
+        throw new ConflictException('Parcel is not awaiting a recipient PUDO request');
+      }
+
+      let nextStatus = parcel.status;
+      for (const status of [ParcelStatus.CUSTOMER_REQUEST, ParcelStatus.PUDO_ELIGIBILITY, ParcelStatus.HUB_SELECTED]) {
+        if (!canTransitionParcel(nextStatus, status)) {
+          throw new ConflictException(`Invalid PUDO request transition from ${nextStatus} to ${status}`);
+        }
+        nextStatus = status;
+      }
+      parcel.proposed_hub_id = hub.id;
+      parcel.status = nextStatus;
+      parcel.updated_at = new Date();
+      return parcels.save(parcel);
+    });
+  }
+
   /**
    * The hub owner confirms physical custody. The parcel row is locked so retries
    * cannot create duplicate invoices or race a second custody confirmation.
