@@ -85,9 +85,8 @@ test('hub owner receipt confirmation atomically records custody and creates an i
   assert.equal(result.parcel.current_hub_id, 'hub-1');
   assert.ok(result.parcel.delivered_to_hub_at instanceof Date);
   assert.equal(result.parcel.status, ParcelStatus.STORED_AT_HUB);
-  assert.equal(result.invoice.parcel_id, 'parcel-1');
-  assert.equal(result.invoice.hub_id, 'hub-1');
-  assert.equal(result.invoice.amount, 3600);
+  assert.equal(result.invoice, null);
+  assert.equal(result.invoiceDeferredUntilCollectionRequest, true);
   assert.equal(result.alreadyConfirmed, false);
 });
 
@@ -133,6 +132,71 @@ test('non-recipient cannot request PUDO for a parcel', async () => {
   const { service } = makeService();
   await assert.rejects(
     service.requestPudo('parcel-1', 'hub-1', { sub: 'courier-1', phone: dto.recipient_phone, role: UserRole.COURIER, is_verified: true }),
+    (error) => error && error.getStatus && error.getStatus() === 403,
+  );
+});
+
+test('recipient collection request issues invoice using elapsed custody tariff and is idempotent', async () => {
+  const deliveredAt = new Date(Date.now() - 13 * 60 * 60 * 1000);
+  const parcel = {
+    id: 'parcel-collect-1', recipient_id: 'recipient-1', recipient_phone: dto.recipient_phone,
+    proposed_hub_id: 'hub-1', current_hub_id: 'hub-1', delivered_to_hub_at: deliveredAt,
+    base_post_cost: 18000, status: ParcelStatus.STORED_AT_HUB, courier_id: 'courier-1',
+  };
+  let invoice = null;
+  let pricingCalledAt = null;
+  const manager = {
+    getRepository(entity) {
+      if (entity === ParcelEntity) return { findOne: async () => parcel, save: async (value) => value };
+      if (entity === InvoiceEntity) return {
+        findOne: async () => invoice,
+      };
+      throw new Error('Unexpected repository');
+    },
+  };
+  const service = new ParcelsService(
+    { findOne: async () => parcel },
+    { findOne: async () => null },
+    { findOne: async () => ({ id: 'recipient-1' }) },
+    { transaction: async (work) => work(manager) },
+    { calculate: (value, now) => {
+      pricingCalledAt = now;
+      assert.equal(value.delivered_to_hub_at, deliveredAt);
+      return {
+        basePostCost: 18000, elapsedHours: 13, actualElapsedHours: 13,
+        feePercentage: 0.4, calculatedFee: 7200,
+        tariffSnapshot: { tariffKey: 'PUDO-N-TARIFF-168H-V1', appliedPercentage: 40 },
+      };
+    } },
+    { create: async (value, pricing) => {
+      invoice = { parcel_id: value.id, hub_id: value.current_hub_id, amount: pricing.calculatedFee, tariff_snapshot: pricing.tariffSnapshot };
+      return invoice;
+    } },
+  );
+
+  const result = await service.requestCustomerCollection('parcel-collect-1', {
+    sub: 'recipient-1', phone: dto.recipient_phone, role: UserRole.RECIPIENT, is_verified: true,
+  });
+  assert.ok(pricingCalledAt instanceof Date);
+  assert.equal(result.parcel.status, ParcelStatus.READY_FOR_CUSTOMER);
+  assert.equal(result.invoice.amount, 7200);
+  assert.equal(result.invoice.hub_id, 'hub-1');
+  assert.equal(result.invoice.tariff_snapshot.appliedPercentage, 40);
+  assert.equal(result.alreadyIssued, false);
+
+  const retry = await service.requestCustomerCollection('parcel-collect-1', {
+    sub: 'recipient-1', phone: dto.recipient_phone, role: UserRole.RECIPIENT, is_verified: true,
+  });
+  assert.equal(retry.invoice, invoice);
+  assert.equal(retry.alreadyIssued, true);
+});
+
+test('only the recipient can request customer collection', async () => {
+  const { service } = makeService();
+  await assert.rejects(
+    service.requestCustomerCollection('parcel-1', {
+      sub: 'courier-1', phone: dto.recipient_phone, role: UserRole.COURIER, is_verified: true,
+    }),
     (error) => error && error.getStatus && error.getStatus() === 403,
   );
 });
