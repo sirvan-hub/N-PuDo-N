@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ParcelEntity } from '../../database/entities/parcel.entity';
 import { UserPayload, UserRole } from '../../common/interfaces/user-payload.interface';
+import { ParcelStatus } from './parcel-state-machine';
 
 @Injectable()
 export class ParcelsService {
@@ -15,7 +16,7 @@ export class ParcelsService {
     const parcel = this.repo.create({
       ...dto,
       courier_id: courierId,
-      status: 'DELIVERY_ATTEMPT',
+      status: ParcelStatus.DELIVERY_ATTEMPT,
       created_at: new Date(),
       updated_at: new Date(),
     });
