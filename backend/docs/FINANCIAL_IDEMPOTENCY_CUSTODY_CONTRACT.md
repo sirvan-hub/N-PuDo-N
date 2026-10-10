@@ -15,7 +15,7 @@
 - Posting ledger rows and updating the affected wallet balance buckets must occur in the same database transaction. `WalletsService.credit`, `creditPending`, `releasePending`, `hold`, `releaseHold`, and `debit` use transactions, PostgreSQL row locking, and an idempotency record written in the same transaction. `debit` is an internal wallet posting only; payout-provider execution and revenue allocation remain separate workflows.
 - Ledger entries are append-only by application contract. Corrections use compensating entries, not UPDATE/DELETE. The database migration does not install a trigger that prevents a privileged database operator from editing rows.
 - Existing nonzero available and pending balances are represented by deterministic opening entries during migration. `blocked_balance` is introduced by this migration and starts at zero. Historical movements before this migration cannot be reconstructed; the opening entries establish a migration-time starting point only.
-- Hub share is approved at a default 30% of the invoice total and is configurable by `ADMIN` / `SUPER_ADMIN` from `PUT /v1/admin/hub-share`. Values from 0% to 100%, up to two decimal places, are accepted. Each change records the prior/new rate, actor, optional reason and timestamp in `hub_share_rate_history`. Each newly created invoice stores `hub_share_percent` and a `hub_share_snapshot`; later setting changes do not rewrite prior invoices. The share amount is floored to a whole toman. `platform_fee` remains zero/unallocated; the remaining amount is not assigned to the platform or courier by this contract.
+- New invoices snapshot the approved 30% courier / 30% hub / 40% platform split on the Pudo-N service charge, excluding postal postage. Courier and hub shares are floored to whole tomans and the integer rounding remainder is assigned to the platform so the three amounts sum exactly to the charge. The legacy configurable hub-share setting remains historical/admin configuration only and must not reprice new invoice allocation snapshots. Historical invoices are marked `LEGACY_REQUIRES_RECONCILIATION` and are not automatically reallocated.
 
 ## 2. Invoice and tariff snapshot
 
@@ -51,7 +51,7 @@
 
 ## 6. Explicitly unresolved / not authorized by this contract
 
-1. The 30% hub share is approved as a default and is administrator-configurable. Platform/courier allocation of the remaining amount is still undefined; `platform_fee` stays zero.
+1. New storage/collection invoice payments with a valid 30/30/40 snapshot are allocated transactionally: immutable allocation rows are recorded, and courier/hub shares are credited to their wallet ledgers with separate idempotency records. Platform share remains in the platform allocation ledger. Legacy invoices are not auto-credited and require reconciliation. Network-entry charges and a real bank/provider verification source remain separate pending work.
 2. The exact currency code/representation for gateways and reports (whole toman is the current project convention; external ISO currency mapping remains open).
 3. Payment-provider integration, payment-attempt history, retry/timeout rules, and external reconciliation.
 4. Custody-code expiry duration, maximum attempts, and lockout duration.
@@ -70,5 +70,5 @@
 - Existing wallet available/pending balances are represented by opening ledger entries.
 - PostgreSQL CI applies the additive migrations, runs tests, then reverts them on the disposable service.
 - Invoice payment reconciliation is administrator-only, atomic across invoice/settlement/audit/idempotency records, rejects repeated payment references, and is verified by PostgreSQL integration tests.
-- Hub share defaults to 30%, changes are administrator-only and historized, new invoices persist a rate snapshot, and historical invoices are not backfilled with a new commercial rate.
+- New invoice allocation snapshots use the approved 30/30/40 split; verified invoice payments create immutable revenue allocation rows and idempotent courier/hub wallet credits. Historical invoices remain explicitly marked for manual reconciliation.
 - Hub payout requests reserve available funds atomically; administrator rejection releases them, approval leaves them blocked, and no external transfer is claimed or executed.
