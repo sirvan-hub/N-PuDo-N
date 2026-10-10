@@ -137,11 +137,6 @@ export class ParcelsService {
       throw new BadRequestException('A private label-photo storage reference is required; public URLs are not accepted');
     }
 
-    const proposedHub = await this.hubs.findOne({ where: { id: dto.proposed_hub_id } });
-    if (!proposedHub || !proposedHub.is_active || proposedHub.is_temporarily_closed) {
-      throw new BadRequestException('Proposed hub does not exist or is not accepting parcels');
-    }
-
     const packageSize = dto.package_size || 'MEDIUM';
     const basePrice = await this.pricingService.resolveBaseCost(packageSize, new Date());
     const parcelData = {
