@@ -14,7 +14,7 @@
 - The invariant for each wallet and bucket is: the bucket balance equals the sum of its opening-balance entry plus all later ledger entries in that bucket. Available, pending, and blocked balances must never be combined implicitly.
 - Posting a ledger row and updating the matching wallet balance must occur in the same database transaction. Application code must use row locking or equivalent concurrency control. The schema migration alone does not claim to implement that posting service.
 - Ledger entries are append-only by application contract. Corrections use compensating entries, not UPDATE/DELETE. The database migration does not install a trigger that prevents a privileged database operator from editing rows.
-- Existing nonzero wallet balances are represented by deterministic opening entries during migration. Historical movements before this migration cannot be reconstructed; the opening entries establish a migration-time starting point only.
+- Existing nonzero available and pending balances are represented by deterministic opening entries during migration. `blocked_balance` is introduced by this migration and starts at zero. Historical movements before this migration cannot be reconstructed; the opening entries establish a migration-time starting point only.
 - No revenue split is approved by this contract. Existing `hub_owner_share` and `platform_fee` fields remain for compatibility but must not be treated as approval of the currently coded 70/30 calculation.
 
 ## 2. Invoice and tariff snapshot
