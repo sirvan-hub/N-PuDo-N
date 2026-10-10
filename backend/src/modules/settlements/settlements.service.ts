@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { DataSource } from 'typeorm';
 import { IdempotencyRecordEntity, IdempotencyState } from '../../database/entities/idempotency-record.entity';
 import { InvoiceEntity, PaymentStatus } from '../../database/entities/invoice.entity';
