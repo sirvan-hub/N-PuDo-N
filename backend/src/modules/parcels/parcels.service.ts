@@ -245,8 +245,11 @@ export class ParcelsService {
       throw new ConflictException('Invoice must be PAID before requesting a delivery code');
     }
 
-    const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
     const requestedAt = new Date();
+    if (parcel.delivery_code_requested_at && requestedAt.getTime() - new Date(parcel.delivery_code_requested_at).getTime() < 60_000) {
+      throw new ConflictException('Please wait before requesting another delivery code');
+    }
+    const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
     const expiresAt = new Date(requestedAt.getTime() + 10 * 60_000);
     const hash = this.hashDeliveryCode(code);
     await this.dataSource.transaction(async (manager) => {
