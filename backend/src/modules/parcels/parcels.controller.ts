@@ -23,7 +23,6 @@ class RespondParcelInvitationDto {
 class CustodyEvidenceDto {
   @IsString()
   @Length(8, 512)
-  @Matches(/^(?!https?:\\/\\/)(?!.*\\.\\.).+$/i)
   evidence_ref: string;
 }
 
@@ -34,7 +33,6 @@ class ConfirmCustomerReleaseDto {
 
   @IsString()
   @Length(8, 512)
-  @Matches(/^(?!https?:\/\/)(?!.*\.\.).+$/i)
   evidence_ref: string;
 
   @IsOptional()
