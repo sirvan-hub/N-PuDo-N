@@ -1,9 +1,11 @@
-﻿import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
 import { UserRole } from '../../common/interfaces/user-payload.interface';
 
 @Entity('users')
 export class UserEntity {
   @PrimaryGeneratedColumn('uuid') id: string;
+  @Column({ type: 'varchar', length: 32, nullable: true, unique: true }) username: string;
+  @Column({ type: 'varchar', length: 255, nullable: true, select: false }) password_hash: string;
   @Column({ type: 'varchar', length: 15, unique: true }) @Index() phone: string;
   @Column({ type: 'varchar', length: 100, nullable: true }) full_name: string;
   @Column({ type: 'varchar', length: 10, nullable: true }) national_id: string;

@@ -1,51 +1,98 @@
-﻿import { Injectable, UnauthorizedException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, BadRequestException, GoneException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
+import * as bcrypt from 'bcrypt';
 import { Repository } from 'typeorm';
 import { UserEntity } from '../../database/entities/user.entity';
+import { UserRole } from '../../common/interfaces/user-payload.interface';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 
 @Injectable()
 export class AuthService {
-  private readonly logger = new Logger(AuthService.name);
-  private otpStore = new Map<string, { otp: string; expiresAt: Date }>();
+  private readonly maxFailedAttempts = 5;
+  private readonly lockDurationMs = 15 * 60 * 1000;
 
   constructor(
     @InjectRepository(UserEntity) private userRepo: Repository<UserEntity>,
     private jwtService: JwtService,
   ) {}
 
-  async register(dto: RegisterDto): Promise<UserEntity> {
-    const exists = await this.userRepo.findOne({ where: { phone: dto.phone } });
-    if (exists) throw new ConflictException('Phone already registered');
-    const user = this.userRepo.create({ phone: dto.phone, full_name: dto.full_name, role: dto.role, national_id: dto.national_id });
-    return this.userRepo.save(user);
+  async register(dto: RegisterDto) {
+    const role = dto.role ?? UserRole.RECIPIENT;
+    if (role !== UserRole.RECIPIENT) {
+      throw new BadRequestException('Only recipient accounts can be created through public registration');
+    }
+
+    const exists = await this.userRepo.findOne({
+      where: [{ phone: dto.phone }, { username: dto.username }],
+    });
+    if (exists) throw new ConflictException('Username or phone already registered');
+
+    const user = this.userRepo.create({
+      username: dto.username,
+      password_hash: await bcrypt.hash(dto.password, 12),
+      phone: dto.phone,
+      full_name: dto.full_name,
+      role: UserRole.RECIPIENT,
+      national_id: dto.national_id,
+    });
+    const saved = await this.userRepo.save(user);
+    return {
+      id: saved.id,
+      username: saved.username,
+      phone: saved.phone,
+      full_name: saved.full_name,
+      role: saved.role,
+      is_verified: saved.is_verified,
+      created_at: saved.created_at,
+    };
   }
 
-  async login(dto: LoginDto): Promise<{ message: string }> {
-    const user = await this.userRepo.findOne({ where: { phone: dto.phone } });
-    if (!user) throw new UnauthorizedException('User not found');
-    if (!user.is_active) throw new UnauthorizedException('Account disabled');
-    const otp = '12345'; // ثابت برای تست‌های اتوماتیک
-    this.otpStore.set(dto.phone, { otp, expiresAt: new Date(Date.now() + 300000) });
-    this.logger.log('OTP sent to ' + dto.phone + ': ' + otp);
-    return { message: 'OTP sent' };
-  }
+  async login(dto: LoginDto) {
+    const user = await this.userRepo
+      .createQueryBuilder('user')
+      .addSelect('user.password_hash')
+      .where('user.username = :username', { username: dto.username })
+      .getOne();
 
-  async verifyOtp(dto: VerifyOtpDto) {
-    const stored = this.otpStore.get(dto.phone);
-    if (!stored) throw new BadRequestException('OTP not found');
-    if (stored.expiresAt < new Date()) { this.otpStore.delete(dto.phone); throw new BadRequestException('OTP expired'); }
-    if (stored.otp !== dto.otp) throw new UnauthorizedException('Invalid OTP');
-    this.otpStore.delete(dto.phone);
-    const user = await this.userRepo.findOne({ where: { phone: dto.phone } });
-    if (!user) throw new UnauthorizedException('User not found');
-    user.last_login_at = new Date();
-    if (!user.is_verified) { user.is_verified = true; }
+    if (!user || !user.password_hash || !user.is_active) {
+      throw new UnauthorizedException('Invalid username or password');
+    }
+
+    const now = new Date();
+    if (user.locked_until && user.locked_until > now) {
+      throw new UnauthorizedException('Invalid username or password');
+    }
+
+    const validPassword = await bcrypt.compare(dto.password, user.password_hash);
+    if (!validPassword) {
+      user.failed_login_attempts = (user.failed_login_attempts ?? 0) + 1;
+      if (user.failed_login_attempts >= this.maxFailedAttempts) {
+        user.locked_until = new Date(Date.now() + this.lockDurationMs);
+        user.failed_login_attempts = 0;
+      }
+      await this.userRepo.save(user);
+      throw new UnauthorizedException('Invalid username or password');
+    }
+
+    user.failed_login_attempts = 0;
+    user.locked_until = null;
+    user.last_login_at = now;
     await this.userRepo.save(user);
-    const payload = { sub: user.id, phone: user.phone, role: user.role, is_verified: user.is_verified };
+
+    const payload = {
+      sub: user.id,
+      username: user.username,
+      phone: user.phone,
+      role: user.role,
+      is_verified: user.is_verified,
+    };
     return { access_token: this.jwtService.sign(payload), user: payload };
+  }
+
+  async verifyOtp(_dto: VerifyOtpDto): Promise<never> {
+    throw new GoneException('OTP login is temporarily disabled. Use username and password.');
   }
 }
