@@ -50,7 +50,7 @@ export class ParcelsService {
     if (this.dataSource?.transaction) {
       return this.dataSource.transaction(async (manager) => {
         const parcels = manager.getRepository(ParcelEntity);
-        const parcel = await parcels.save(parcels.create(parcelData));
+        const parcel = await parcels.save(parcels.create(parcelData as Partial<ParcelEntity>));
         await manager.getRepository(AuditLogEntity).save(manager.getRepository(AuditLogEntity).create({
           actor_id: courierId,
           actor_role: UserRole.COURIER,
