@@ -184,6 +184,7 @@ test('recipient PUDO request selects an active hub and advances the state machin
     getRepository(entity) {
       if (entity === ParcelEntity) return { findOne: async () => parcel, save: async (value) => value };
       if (entity === HubEntity) return { findOne: async () => hub };
+      if (entity === NetworkEntryChargeEntity) return { findOne: async () => ({ status: NetworkEntryChargeStatus.VERIFIED }) };
       if (entity === AuditLogEntity) return { create: (value) => value, save: async (value) => value };
       throw new Error('Unexpected repository');
     },
