@@ -109,17 +109,19 @@ test('PostgreSQL serializes concurrent payment reconciliation and parcel release
       { create: async () => ({}) },
     );
     const ownerActor = { sub: owner.id, phone: owner.phone, role: UserRole.HUB_OWNER };
-    const releaseResults = await Promise.allSettled([
-      parcelService.confirmCustomerRelease(parcel.id, ownerActor, '482916'),
-      parcelService.confirmCustomerRelease(parcel.id, ownerActor, '482916'),
+    const recipientActor = { sub: recipient.id, phone: recipient.phone, role: UserRole.RECIPIENT };
+    const codeResult = await parcelService.confirmCustomerRelease(parcel.id, ownerActor, '482916', `private-hub-evidence-${suffix}`);
+    assert.equal(codeResult.verified, true);
+    assert.equal(codeResult.awaitingRecipientEvidence, true);
+    assert.equal(await dataSource.getRepository(ParcelEntity).countBy({ id: parcel.id, status: ParcelStatus.COLLECTED }), 0);
+    const handoverResults = await Promise.all([
+      parcelService.confirmRecipientHandover(parcel.id, `private-recipient-evidence-${suffix}`, recipientActor),
+      parcelService.confirmRecipientHandover(parcel.id, `private-recipient-evidence-${suffix}`, recipientActor),
     ]);
-    assert.equal(releaseResults.filter((result) => result.status === 'fulfilled').length, 2,
-      'release retries should return a successful idempotent result');
-    const releases = releaseResults.filter((result) => result.status === 'fulfilled').map((result) => result.value);
-    assert.equal(releases.filter((result) => result.alreadyReleased === false).length, 1,
-      'exactly one request must perform the physical release transition');
-    assert.equal(releases.filter((result) => result.alreadyReleased === true).length, 1,
-      'the racing retry must observe the already-released parcel');
+    assert.equal(handoverResults.filter((result) => result.alreadyConfirmed === false).length, 1,
+      'exactly one request must perform the final handover transition');
+    assert.equal(handoverResults.filter((result) => result.alreadyConfirmed === true).length, 1,
+      'the racing retry must observe the completed handover');
     assert.equal(await dataSource.getRepository(ParcelEntity).countBy({ id: parcel.id, status: ParcelStatus.COLLECTED }), 1);
   } finally {
     if (invoice) {
