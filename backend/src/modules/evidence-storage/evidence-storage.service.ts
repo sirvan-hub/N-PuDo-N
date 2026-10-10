@@ -192,7 +192,7 @@ export class EvidenceStorageService {
 
   private async storageRequest(path: string, init: RequestInit): Promise<any> {
     const baseUrl = this.storageBaseUrl();
-    const secret = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const secret = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!secret) throw new ServiceUnavailableException('Private evidence storage credentials are not configured');
     const encodedPath = path.split('/').map((segment) => encodeURIComponent(segment)).join('/');
     let response: Response;
