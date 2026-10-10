@@ -12,6 +12,7 @@ import { WalletsModule } from './modules/wallets/wallets.module';
 import { SettlementsModule } from './modules/settlements/settlements.module';
 import { HubShareSettingsModule } from './modules/hub-share-settings/hub-share-settings.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { EvidenceStorageModule } from './modules/evidence-storage/evidence-storage.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     SettlementsModule,
     HubShareSettingsModule,
     NotificationsModule,
+    EvidenceStorageModule,
   ],
 })
 export class AppModule {};
