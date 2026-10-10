@@ -70,3 +70,20 @@ The storage adapter is code-only until a private Supabase bucket and server-only
 - No complete Android evidence UI.
 - No production Supabase bucket configuration or operational end-to-end photo verification.
 - No production migration, deployment, merge, or external payout.
+
+
+## Follow-up implementation added after this audit
+
+Commit series on `feat/postgres-migrations-ci` adds the first label-image vertical slice:
+
+- `LABEL_IMAGE` evidence category, restricted to the assigned courier through parcel-level authorization.
+- Draft parcel creation can omit `label_image_ref`; the courier uploads the image and attaches the returned private reference through `POST /v1/parcels/:id/label-image`.
+- The attachment operation is audited and only allowed before hub selection/custody transfer.
+- Hub selection is rejected until a label-image reference is attached.
+- PWA courier panel now includes parcel registration fields, label image selection/camera capture hint, private upload, reference attachment, and retry UI for an upload/attachment failure.
+- The accepted invitation ID is shown in the courier inbox response notification to support the registration form.
+- Added a focused private-storage test for the `LABEL_IMAGE` upload path and updated storage documentation/styles.
+
+**Verification boundary:** these changes have not yet been confirmed by a CI run on the latest commit. The GitHub workflow-run query returned no PR-triggered runs for the latest head at inspection time. Do not mark this slice verified until Backend CI, PWA CI, and PostgreSQL CI run against the current head and their results are reviewed.
+
+**Known follow-up:** the current implementation uses an opaque object reference and does not maintain a separate upload-intent/metadata record proving that the referenced object was freshly uploaded before attachment. Signed URL access still checks that the reference is attached to the parcel. Treat this as an incremental workflow slice, not production-grade image provenance. A later hardening pass should bind upload metadata to the actor, parcel, category, object checksum/content type and attachment state, and define orphan-object cleanup.
