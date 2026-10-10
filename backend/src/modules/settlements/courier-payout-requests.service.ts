@@ -3,6 +3,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { createHash } from 'node:crypto';
 import { DataSource, EntityManager } from 'typeorm';
 import { WalletEntity } from '../../database/entities/wallet.entity';
+import { AuditLogEntity } from '../../database/entities/audit-log.entity';
 import { PayoutPreferenceEntity } from '../../database/entities/payout-preference.entity';
 import { WalletTransactionEntity, WalletBucket, WalletTransactionType } from '../../database/entities/wallet-transaction.entity';
 import { IdempotencyRecordEntity, IdempotencyState } from '../../database/entities/idempotency-record.entity';
@@ -64,6 +65,13 @@ export class CourierPayoutRequestsService {
           idempotency_record_id: idem.id,
         }),
       );
+      await manager.getRepository(AuditLogEntity).save(manager.getRepository(AuditLogEntity).create({
+        actor_id: actor.sub, actor_role: actor.role, entity_type: 'settlement_transaction', entity_id: request.id,
+        action: 'PAYOUT_REQUESTED', old_state: { availableBalance: wallet.balance + amount, blockedBalance: Number(wallet.blocked_balance) - amount },
+        new_state: { status: SettlementTransactionStatus.REQUESTED, availableBalance: wallet.balance, blockedBalance: wallet.blocked_balance },
+        transaction_id: request.id, correlation_id: key.slice(0, 120),
+        metadata: { beneficiaryType: 'COURIER', amount, frequency: preference.frequency },
+      }));
       const response = {
         requestId: request.id, courierId: actor.sub, amount, frequency: preference.frequency, currencyUnit: 'TOMAN',
         status: SettlementTransactionStatus.REQUESTED, availableBalance: wallet.balance,
