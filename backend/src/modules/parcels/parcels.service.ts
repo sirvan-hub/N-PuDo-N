@@ -696,6 +696,16 @@ export class ParcelsService {
       }));
 
       if (bothConfirmed) {
+        if (parcel.recipient_id) {
+          await manager.getRepository(NotificationEntity).save(manager.getRepository(NotificationEntity).create({
+            user_id: parcel.recipient_id,
+            category: 'HUB_RECEIPT_CONFIRMED',
+            title: 'مرسوله به هاب تحویل شد',
+            body: `تحویل مرسوله ${parcel.tracking_code} با تأیید سفیر و هاب ثبت شد. زمان نگهداری از اکنون محاسبه می‌شود.`,
+            reference_type: 'parcel',
+            reference_id: parcel.id,
+          }));
+        }
         await manager.getRepository(AuditLogEntity).save(manager.getRepository(AuditLogEntity).create({
           actor_id: actor.sub,
           actor_role: actor.role,
