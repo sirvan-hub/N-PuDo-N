@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { createHash } = require('node:crypto');
 const { ParcelsService } = require('../dist/modules/parcels/parcels.service');
 const { ParcelStatus } = require('../dist/modules/parcels/parcel-state-machine');
 const { ParcelEntity } = require('../dist/database/entities/parcel.entity');
@@ -117,6 +118,8 @@ test('recipient PUDO request selects an active hub and advances the state machin
       if (entity === HubEntity) return { findOne: async () => hub };
       throw new Error('Unexpected repository');
     },
+    connection: { options: { type: 'sqlite' } },
+    query: async () => [],
   };
   const service = new ParcelsService(
     { findOne: async () => parcel },
@@ -258,6 +261,7 @@ test('hub owner cannot release before payment and can release after invoice is p
   const parcel = {
     id: 'parcel-release-1', current_hub_id: 'hub-1', recipient_id: 'recipient-1',
     status: ParcelStatus.READY_FOR_CUSTOMER, collected_at: null,
+    delivery_code_hash: null, delivery_code_expires_at: null, delivery_code_attempts: 0,
   };
   const hub = { id: 'hub-1', owner_id: 'owner-1' };
   const invoice = { id: 'invoice-release-1', parcel_id: parcel.id, status: 'PENDING' };
@@ -266,6 +270,7 @@ test('hub owner cannot release before payment and can release after invoice is p
       if (entity === ParcelEntity) return { findOne: async () => parcel, save: async (value) => value };
       if (entity === HubEntity) return { findOne: async () => hub };
       if (entity === InvoiceEntity) return { findOne: async () => invoice };
+      if (entity === require('../dist/database/entities/user.entity').UserEntity) return { findOne: async () => null };
       throw new Error('Unexpected repository');
     },
   };
@@ -278,12 +283,14 @@ test('hub owner cannot release before payment and can release after invoice is p
     { create: async () => ({}) },
   );
   const owner = { sub: 'owner-1', phone: '+18880000001', role: UserRole.HUB_OWNER, is_verified: true };
-  await assert.rejects(service.confirmCustomerRelease(parcel.id, owner),
+  await assert.rejects(service.confirmCustomerRelease(parcel.id, owner, '123456'),
     (error) => error && error.getStatus && error.getStatus() === 409);
   assert.equal(parcel.status, ParcelStatus.READY_FOR_CUSTOMER);
 
   invoice.status = 'PAID';
-  const result = await service.confirmCustomerRelease(parcel.id, owner);
+  parcel.delivery_code_hash = createHash('sha256').update('123456').digest('hex');
+  parcel.delivery_code_expires_at = new Date(Date.now() + 60_000);
+  const result = await service.confirmCustomerRelease(parcel.id, owner, '123456');
   assert.equal(result.alreadyReleased, false);
   assert.equal(result.parcel.status, ParcelStatus.COLLECTED);
   assert.ok(result.parcel.collected_at instanceof Date);
