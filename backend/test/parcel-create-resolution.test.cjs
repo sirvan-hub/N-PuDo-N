@@ -83,14 +83,14 @@ test('parcel creation rejects an unregistered recipient', async () => {
   await assert.rejects(service.create(dto, 'courier-1'), (error) => error && error.getStatus && error.getStatus() === 400);
 });
 
-test('parcel creation rejects a missing, inactive, or temporarily closed proposed hub', async (t) => {
-  for (const hub of [null, { id: 'hub-1', is_active: false, is_temporarily_closed: false }, { id: 'hub-1', is_active: true, is_temporarily_closed: true }]) {
-    await t.test(JSON.stringify(hub), async () => {
-      const { service } = makeService({ hub });
-      await assert.rejects(service.create(dto, 'courier-1'), (error) => error && error.getStatus && error.getStatus() === 400);
-    });
-  }
+test('parcel registration does not require hub selection before entry-fee verification', async () => {
+  const { service } = makeService({ hub: null });
+  const { proposed_hub_id, ...registrationWithoutHub } = dto;
+  const parcel = await service.create(registrationWithoutHub, 'courier-1');
+  assert.equal(parcel.proposed_hub_id, undefined);
+  assert.equal(parcel.status, ParcelStatus.DELIVERY_ATTEMPT);
 });
+
 
 test('hub receipt evidence alone does not finalize custody before courier confirmation', async () => {
   const parcel = {
