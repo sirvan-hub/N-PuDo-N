@@ -54,9 +54,10 @@ export class CreateParcelDto {
   @Min(0)
   base_post_cost?: number;
 
-  @ApiProperty({ example: 'hub-001' })
+  @ApiPropertyOptional({ example: 'hub-001', description: 'Legacy compatibility only; recipient selects the hub after entry-fee verification' })
+  @IsOptional()
   @IsString()
-  proposed_hub_id: string;
+  proposed_hub_id?: string;
 
   @ApiPropertyOptional({ example: 2.5 })
   @IsOptional()
