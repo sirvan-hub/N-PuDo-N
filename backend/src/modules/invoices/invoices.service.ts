@@ -32,19 +32,27 @@ export class InvoicesService {
     const existing = invoiceRepo.findOne ? await invoiceRepo.findOne({ where: { parcel_id: parcel.id } }) : null;
     if (existing) return existing;
 
-    const hubSharePercent = await this.getCurrentHubSharePercent(manager);
     const totalAmount = Number(pricing.calculatedFee);
     if (!Number.isSafeInteger(totalAmount) || totalAmount < 0) {
       throw new BadRequestException('Invoice amount must be a non-negative whole currency unit');
     }
-    const hubOwnerShare = Math.floor(totalAmount * hubSharePercent / 100);
+    const courierShare = Math.floor(totalAmount * 30 / 100);
+    const hubOwnerShare = Math.floor(totalAmount * 30 / 100);
+    // Assign integer rounding remainder to the platform so all allocations sum exactly to the charge.
+    const platformShare = totalAmount - courierShare - hubOwnerShare;
     const snapshot = {
-      snapshotVersion: 1,
-      rule: 'fixed-percentage-of-invoice-total',
-      percentage: hubSharePercent,
+      snapshotVersion: 2,
+      allocationStatus: 'SNAPSHOTTED_PENDING_PAYMENT',
+      rule: 'fixed-30-30-40-of-pudo-service-charge',
       basisAmount: totalAmount,
-      hubOwnerShare,
       currencyUnit: 'TOMAN',
+      shares: {
+        courier: { percent: 30, amount: courierShare },
+        hub: { percent: 30, amount: hubOwnerShare },
+        platform: { percent: 40, amount: platformShare },
+      },
+      rounding: 'FLOOR_COURIER_AND_HUB_REMAINDER_TO_PLATFORM',
+      sumCheck: courierShare + hubOwnerShare + platformShare,
       capturedAt: new Date().toISOString(),
     };
     const invoice = invoiceRepo.create({
@@ -53,7 +61,7 @@ export class InvoicesService {
       base_post_cost: pricing.basePostCost, elapsed_hours: pricing.elapsedHours,
       fee_percentage: pricing.feePercentage * 100, calculated_fee: totalAmount,
       total_amount: totalAmount, status: PaymentStatus.PENDING,
-      hub_owner_share: hubOwnerShare, platform_fee: 0,
+      courier_share: courierShare, hub_owner_share: hubOwnerShare, platform_fee: platformShare,\n      revenue_allocation_snapshot: snapshot,
       tariff_snapshot: pricing.tariffSnapshot ?? {
         snapshotVersion: 1, tariffKey: 'PUDO-N-TARIFF-168H-V1',
         basePostCost: pricing.basePostCost, elapsedHours: pricing.elapsedHours,
@@ -61,7 +69,7 @@ export class InvoicesService {
         currencyUnit: 'TOMAN',
       },
       tariff_version_id: pricing.tariffVersionId ?? null,
-      hub_share_percent: hubSharePercent, hub_share_snapshot: snapshot,
+      hub_share_percent: 30, hub_share_snapshot: snapshot,
     });
     return invoiceRepo.save(invoice);
   }
