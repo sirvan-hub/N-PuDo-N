@@ -35,7 +35,10 @@ export default function App() {
   const [session, setSession] = useState<{ token: string; user: AuthUser } | null>(null);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [notificationError, setNotificationError] = useState('');
-  const [notificationsLoading, setNotificationsLoading] = useState(false);\n  const [invitationPhone, setInvitationPhone] = useState('');\n  const [workspaceBusy, setWorkspaceBusy] = useState(false);\n  const [workspaceMessage, setWorkspaceMessage] = useState('');
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [invitationPhone, setInvitationPhone] = useState('');
+  const [workspaceBusy, setWorkspaceBusy] = useState(false);
+  const [workspaceMessage, setWorkspaceMessage] = useState('');
 
   useEffect(() => {
     if (!session || !apiBase) {
