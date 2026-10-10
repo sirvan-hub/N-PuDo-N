@@ -8,10 +8,16 @@ recipient's in-app notification inbox. No SMS gateway configuration is required.
 The backend generates a six-digit code, stores only its salted SHA-256 hash in the
 custody ledger, expires it after 10 minutes, and invalidates it after five failed
 verification attempts. The plaintext code is present only in the recipient's
-private notification message and is never returned to the hub owner's API response
-or written to audit logs. The notification expires from the API inbox when the
-code expires; its persisted record remains available to authorized internal audit
-processes subject to retention policy.
+private in-app notification message and is never returned to the hub owner's API
+response or written to audit logs.
+
+Expired delivery-code notification bodies are physically scrubbed and replaced
+with a generic expired message. The backend runs an idempotent cleanup on startup
+and every 60 seconds, and also scrubs expired messages when an inbox is requested.
+The API excludes expired messages from the inbox. This reduces retention of expired
+secrets even when a recipient does not sign in again. Cleanup is best-effort while
+the backend is running; it does not retroactively remove copies already displayed,
+captured, or exported by a recipient.
 
 ## API flow
 
