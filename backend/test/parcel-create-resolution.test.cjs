@@ -79,7 +79,7 @@ test('parcel creation rejects a missing, inactive, or temporarily closed propose
   }
 });
 
-test('hub owner receipt confirmation atomically records custody and creates an invoice snapshot', async () => {
+test('hub receipt evidence alone does not finalize custody before courier confirmation', async () => {
   const parcel = {
     id: 'parcel-1', recipient_id: 'recipient-1', recipient_phone: dto.recipient_phone,
     proposed_hub_id: 'hub-1', current_hub_id: null, delivered_to_hub_at: null,
@@ -108,20 +108,21 @@ test('hub owner receipt confirmation atomically records custody and creates an i
     { create: async (value, pricing, transactionManager) => ({ parcel_id: value.id, hub_id: value.current_hub_id, amount: pricing.calculatedFee, snapshot: { percentage: 30 }, manager: transactionManager }) },
   );
 
-  const result = await service.confirmHubReceipt('parcel-1', { sub: 'owner-1', phone: '+18880000001', role: UserRole.HUB_OWNER, is_verified: true });
+  const result = await service.confirmHubReceipt('parcel-1', { sub: 'owner-1', phone: '+18880000001', role: UserRole.HUB_OWNER, is_verified: true }, 'private-object-key-hub-001');
   assert.equal(transactionCalled, true);
-  assert.equal(result.parcel.current_hub_id, 'hub-1');
-  assert.ok(result.parcel.delivered_to_hub_at instanceof Date);
-  assert.equal(result.parcel.status, ParcelStatus.STORED_AT_HUB);
+  assert.equal(result.parcel.current_hub_id, null);
+  assert.equal(result.parcel.delivered_to_hub_at, null);
+  assert.equal(result.parcel.status, ParcelStatus.HANDOVER_IN_PROGRESS);
+  assert.equal(result.custodyConfirmed, false);
+  assert.equal(result.awaitingParty, 'COURIER');
   assert.equal(result.invoice, null);
-  assert.equal(result.invoiceDeferredUntilCollectionRequest, true);
-  assert.equal(result.alreadyConfirmed, false);
+  assert.equal(result.invoiceDeferredUntilCollectionRequest, false);
 });
 
 test('only a hub owner can confirm receipt', async () => {
   const { service } = makeService();
   await assert.rejects(
-    service.confirmHubReceipt('parcel-1', { sub: 'courier-1', phone: dto.recipient_phone, role: UserRole.COURIER, is_verified: true }),
+    service.confirmHubReceipt('parcel-1', { sub: 'courier-1', phone: dto.recipient_phone, role: UserRole.COURIER, is_verified: true }, 'private-object-key-hub-001'),
     (error) => error && error.getStatus && error.getStatus() === 403,
   );
 });
