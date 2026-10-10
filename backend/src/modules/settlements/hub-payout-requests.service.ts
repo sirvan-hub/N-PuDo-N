@@ -3,6 +3,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { createHash } from 'node:crypto';
 import { DataSource, EntityManager } from 'typeorm';
 import { HubEntity } from '../../database/entities/hub.entity';
+import { PayoutPreferenceEntity } from '../../database/entities/payout-preference.entity';
 import { WalletEntity } from '../../database/entities/wallet.entity';
 import { WalletTransactionEntity, WalletBucket, WalletTransactionType } from '../../database/entities/wallet-transaction.entity';
 import { IdempotencyRecordEntity, IdempotencyState } from '../../database/entities/idempotency-record.entity';
@@ -25,6 +26,10 @@ export class HubPayoutRequestsService {
     return this.dataSource.transaction(async (manager) => {
       const hub = await manager.getRepository(HubEntity).findOne({ where: { id: hubId, owner_id: actor.sub } });
       if (!hub) throw new NotFoundException('Hub not found for the authenticated owner');
+      const preference = await manager.getRepository(PayoutPreferenceEntity).findOne({ where: { user_id: actor.sub } });
+      if (!preference?.destination_token || !preference.destination_verified_at) {
+        throw new ConflictException('A payout destination must be configured and manually verified before requesting settlement');
+      }
       const idem = await this.getIdempotency(manager, actor.sub, operation, key, hash);
       if (idem.state === IdempotencyState.COMPLETED) return idem.response_body;
 
@@ -94,11 +99,13 @@ export class HubPayoutRequestsService {
       const idem = await this.getIdempotency(manager, actor.sub, operation, key, hash);
       if (idem.state === IdempotencyState.COMPLETED) return idem.response_body;
       const repo = manager.getRepository(SettlementTransactionEntity);
-      const qb = repo.createQueryBuilder('s').where('s.id = :requestId', { requestId })
-        .andWhere('s.transaction_type = :type', { type: SettlementTransactionType.HUB_PAYOUT });
+      const qb = repo.createQueryBuilder('s').where('s.id = :requestId', { requestId });
       if (manager.connection.options.type === 'postgres') qb.setLock('pessimistic_write');
       const request = await qb.getOne();
       if (!request) throw new NotFoundException('Payout request not found');
+      if (![SettlementTransactionType.HUB_PAYOUT, SettlementTransactionType.COURIER_PAYOUT].includes(request.transaction_type)) {
+        throw new BadRequestException('Settlement transaction is not a hub/courier payout request');
+      }
       if (request.status !== SettlementTransactionStatus.REQUESTED) {
         throw new ConflictException('Only REQUESTED payout items can be reviewed');
       }
@@ -138,8 +145,9 @@ export class HubPayoutRequestsService {
       request.review_note = normalizedNote;
       await repo.save(request);
       const response = {
-        requestId: request.id, hubId: request.hub_id, amount: Number(request.amount),
-        status: request.status, reviewedBy: actor.sub, reviewedAt: request.reviewed_at,
+        requestId: request.id, hubId: request.hub_id,
+        courierId: request.transaction_type === SettlementTransactionType.COURIER_PAYOUT ? request.requested_by : null,
+        amount: Number(request.amount), status: request.status, reviewedBy: actor.sub, reviewedAt: request.reviewed_at,
         fundsReleased: decision === 'REJECT',
         note: decision === 'APPROVE' ? 'Approved; no external transfer has been executed.' : 'Rejected; reserved funds returned to available balance.',
       };
