@@ -290,6 +290,9 @@ test('hub owner cannot release before payment and can release after invoice is p
   invoice.status = 'PAID';
   parcel.delivery_code_hash = createHash('sha256').update('123456').digest('hex');
   parcel.delivery_code_expires_at = new Date(Date.now() + 60_000);
+  await assert.rejects(service.confirmCustomerRelease(parcel.id, owner, '654321'),
+    (error) => error && error.getStatus && error.getStatus() === 401);
+  assert.equal(parcel.delivery_code_attempts, 1);
   const result = await service.confirmCustomerRelease(parcel.id, owner, '123456');
   assert.equal(result.alreadyReleased, false);
   assert.equal(result.parcel.status, ParcelStatus.COLLECTED);
