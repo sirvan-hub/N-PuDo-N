@@ -9,6 +9,6 @@ export class WalletEntity {
   @Column({ type: 'integer', default: 0 }) balance: number;
   @Column({ type: 'integer', default: 0 }) pending_balance: number;
   @Column({ type: 'integer', default: 0 }) total_earned: number;
-  @CreateDateColumn({ type: 'datetime' }) created_at: Date;
-  @UpdateDateColumn({ type: 'datetime' }) updated_at: Date;
+  @CreateDateColumn({ type: 'timestamptz' }) created_at: Date;
+  @UpdateDateColumn({ type: 'timestamptz' }) updated_at: Date;
 }
