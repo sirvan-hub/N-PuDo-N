@@ -87,3 +87,18 @@ Commit series on `feat/postgres-migrations-ci` adds the first label-image vertic
 **Verification boundary:** these changes have not yet been confirmed by a CI run on the latest commit. The GitHub workflow-run query returned no PR-triggered runs for the latest head at inspection time. Do not mark this slice verified until Backend CI, PWA CI, and PostgreSQL CI run against the current head and their results are reviewed.
 
 **Known follow-up:** the current implementation uses an opaque object reference and does not maintain a separate upload-intent/metadata record proving that the referenced object was freshly uploaded before attachment. Signed URL access still checks that the reference is attached to the parcel. Treat this as an incremental workflow slice, not production-grade image provenance. A later hardening pass should bind upload metadata to the actor, parcel, category, object checksum/content type and attachment state, and define orphan-object cleanup.
+
+
+## Follow-up implementation: payout preferences and courier settlement
+
+Added after the label-image slice:
+
+- Versioned PostgreSQL migrations for payout preferences and the COURIER_PAYOUT settlement transaction type; the initial migration remains unchanged.
+- Weekly/monthly preference and masked destination reference storage. Full bank-account/card/IBAN values must not be sent or stored.
+- Administrator-only manual destination verification with audit event and external verification reference. This is an attestation only; no bank/provider API is called, and destination ownership requirements remain subject to product approval.
+- Courier payout request and own-history endpoints, available-balance reservation to blocked balance, idempotency, ledger entries, admin review queue, and shared approve/reject workflow with fund release on rejection.
+- Existing hub payout requests now require a configured and manually verified destination and record audit events.
+- PWA courier/hub payout preference and request panels, with masked destination reference entry, amount request, history display, and explicit warning that approval is not a bank transfer.
+- Regression tests for payout role boundaries, manual destination verification, destination-change invalidation, idempotency, reservation/release, and no-transfer-on-approval.
+
+**Verification boundary:** this work is not verified until Backend CI, PWA CI, and disposable PostgreSQL CI complete successfully on the current PR head. Weekly/monthly preferences are persisted but no scheduler is active. Real bank/provider verification and transfer execution are not implemented. PR #5 remains Draft and unmerged.
