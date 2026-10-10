@@ -444,13 +444,13 @@ export class ParcelsService {
 
       const postgres = manager.connection.options.type === 'postgres';
       const placeholders = postgres
-        ? '$1, $2, \'parcel\', $3, \'PARCEL_DELIVERY_VERIFIED_AND_RELEASED\', $4, $5, $6, $7, $8'
-        : '?, ?, \'parcel\', ?, \'PARCEL_DELIVERY_VERIFIED_AND_RELEASED\', ?, ?, ?, ?, ?';
+        ? '$1, $2, $3, \'parcel\', $4, \'PARCEL_DELIVERY_VERIFIED_AND_RELEASED\', $5, $6, $7, $8, $9'
+        : '?, ?, ?, \'parcel\', ?, \'PARCEL_DELIVERY_VERIFIED_AND_RELEASED\', ?, ?, ?, ?, ?';
       await manager.query(
-        `INSERT INTO audit_logs (actor_id, actor_role, entity_type, entity_id, action, old_state, new_state, transaction_id, correlation_id, metadata)
+        `INSERT INTO audit_logs (id, actor_id, actor_role, entity_type, entity_id, action, old_state, new_state, transaction_id, correlation_id, metadata)
          VALUES (${placeholders})`,
         [
-          actor.sub, actor.role, parcel.id,
+          randomUUID(), actor.sub, actor.role, parcel.id,
           JSON.stringify({ status: oldStatus }),
           JSON.stringify({ status: ParcelStatus.COLLECTED, collectedAt: now.toISOString(), verifiedByOneTimeCode: true }),
           transfer.id, `delivery:${parcel.id}:${now.getTime()}`,
