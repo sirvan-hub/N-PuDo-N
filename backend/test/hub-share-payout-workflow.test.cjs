@@ -12,6 +12,7 @@ test('hub share settings and payout request routes declare the intended role bou
   assert.deepEqual(Reflect.getMetadata('roles', HubShareSettingsController), [UserRole.ADMIN, UserRole.SUPER_ADMIN]);
   assert.deepEqual(Reflect.getMetadata('roles', HubPayoutRequestsController.prototype.request), [UserRole.HUB_OWNER]);
   assert.deepEqual(Reflect.getMetadata('roles', HubPayoutRequestsController.prototype.review), [UserRole.ADMIN, UserRole.SUPER_ADMIN]);
+  assert.deepEqual(Reflect.getMetadata('roles', HubPayoutRequestsController.prototype.listQueue), [UserRole.ADMIN, UserRole.SUPER_ADMIN]);
   assert.deepEqual(Reflect.getMetadata('roles', HubPayoutRequestsController.prototype.list), [UserRole.HUB_OWNER, UserRole.ADMIN, UserRole.SUPER_ADMIN]);
   assert.deepEqual(Reflect.getMetadata('roles', CourierPayoutRequestsController.prototype.request), [UserRole.COURIER]);
   assert.deepEqual(Reflect.getMetadata('roles', CourierPayoutRequestsController.prototype.list), [UserRole.COURIER]);
@@ -208,6 +209,10 @@ test('courier payout preference and request workflow is actor-scoped, idempotent
     const verified = await preferences.verifyDestination(courierId, `external-check-${suffix}`, admin);
     assert.equal(verified.destinationVerified, true);
     assert.equal(verified.frequency, 'WEEKLY');
+    await preferences.updateMine({ destinationToken: `provider-token-changed-${suffix}`, destinationLast4: '4321' }, courier);
+    const afterDestinationChange = await preferences.getMine(courier);
+    assert.equal(afterDestinationChange.destinationVerified, false, 'changing destination must invalidate previous verification');
+    await preferences.verifyDestination(courierId, `external-check-renewed-${suffix}`, admin);
 
     const service = new CourierPayoutRequestsService(dataSource);
     const key = `courier-payout-${suffix}`;
