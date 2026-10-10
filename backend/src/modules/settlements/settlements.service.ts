@@ -235,6 +235,7 @@ export class SettlementsService {
         currencyUnit: 'TOMAN',
         providerReference: providerReference.trim(),
         paidAt: now.toISOString(),
+        revenueAllocationStatus,
       };
       idem.state = IdempotencyState.COMPLETED;
       idem.response_status = 200;
