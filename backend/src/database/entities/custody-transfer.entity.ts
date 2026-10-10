@@ -27,6 +27,10 @@ export class CustodyTransferEntity {
   @Column({ type: 'varchar', length: 32 }) code_salt: string;
   @Column({ type: 'varchar', length: 64 }) code_hash: string;
   @Column({ type: databaseDateColumnType }) expires_at: Date;
+  @Column({ type: databaseDateColumnType, nullable: true }) code_verified_at?: Date;
+  @Column({ type: 'varchar', length: 512, nullable: true }) hub_handover_evidence_ref?: string;
+  @Column({ type: 'varchar', length: 512, nullable: true }) recipient_handover_evidence_ref?: string;
+  @Column({ type: databaseDateColumnType, nullable: true }) recipient_handover_at?: Date;
   @Column({ type: databaseDateColumnType, nullable: true }) consumed_at?: Date;
   @Column({ type: 'int', default: 0 }) failed_attempts: number;
   @Column({ type: databaseUuidColumnType, nullable: true }) idempotency_record_id?: string;
