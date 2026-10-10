@@ -1,8 +1,9 @@
-﻿import { Injectable, UnauthorizedException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { UserEntity } from '../../database/entities/user.entity';
+import { UserRole } from '../../common/interfaces/user-payload.interface';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
@@ -18,9 +19,20 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto): Promise<UserEntity> {
+    const role = dto.role ?? UserRole.RECIPIENT;
+    const publicRoles = [UserRole.RECIPIENT, UserRole.COURIER, UserRole.HUB_OWNER];
+    if (!publicRoles.includes(role)) {
+      throw new BadRequestException('This role cannot be assigned through public registration');
+    }
+
     const exists = await this.userRepo.findOne({ where: { phone: dto.phone } });
     if (exists) throw new ConflictException('Phone already registered');
-    const user = this.userRepo.create({ phone: dto.phone, full_name: dto.full_name, role: dto.role, national_id: dto.national_id });
+    const user = this.userRepo.create({
+      phone: dto.phone,
+      full_name: dto.full_name,
+      role,
+      national_id: dto.national_id,
+    });
     return this.userRepo.save(user);
   }
 
@@ -42,6 +54,7 @@ export class AuthService {
     this.otpStore.delete(dto.phone);
     const user = await this.userRepo.findOne({ where: { phone: dto.phone } });
     if (!user) throw new UnauthorizedException('User not found');
+    if (!user.is_active) throw new UnauthorizedException('Account disabled');
     user.last_login_at = new Date();
     if (!user.is_verified) { user.is_verified = true; }
     await this.userRepo.save(user);
