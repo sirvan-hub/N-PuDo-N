@@ -134,7 +134,7 @@ export class AddDomainFinancialContracts1791630000001 implements MigrationInterf
           FOREIGN KEY ("actor_id") REFERENCES "users"("id") ON DELETE SET NULL,
         CONSTRAINT "fk_wallet_transactions_idempotency"
           FOREIGN KEY ("idempotency_record_id") REFERENCES "idempotency_records"("id") ON DELETE RESTRICT,
-        CONSTRAINT "uq_wallet_transactions_idempotency" UNIQUE ("idempotency_record_id"),
+        CONSTRAINT "uq_wallet_transactions_idempotency_bucket" UNIQUE ("idempotency_record_id", "bucket"),
         CONSTRAINT "ck_wallet_transactions_bucket" CHECK ("bucket" IN ('AVAILABLE', 'PENDING', 'BLOCKED')),
         CONSTRAINT "ck_wallet_transactions_type" CHECK (
           "transaction_type" IN ('OPENING_BALANCE', 'OPENING_PENDING', 'OPENING_BLOCKED',
