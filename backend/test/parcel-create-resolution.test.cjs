@@ -301,6 +301,7 @@ test('hub owner cannot release before payment and can release after invoice is p
       if (entity === InvoiceEntity) return { findOne: async () => invoice };
       if (entity === CustodyTransferEntity) return { findOne: async () => transfer, save: async (value) => value };
       if (entity === AuditLogEntity) return { create: (value) => value, save: async (value) => value };
+      if (entity === NotificationEntity) return { create: (value) => value, save: async (value) => value };
       if (entity === require('../dist/database/entities/user.entity').UserEntity) return { findOne: async () => null };
       throw new Error('Unexpected repository');
     },
