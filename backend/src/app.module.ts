@@ -11,6 +11,7 @@ import { InvoicesModule } from './modules/invoices/invoices.module';
 import { WalletsModule } from './modules/wallets/wallets.module';
 import { SettlementsModule } from './modules/settlements/settlements.module';
 import { HubShareSettingsModule } from './modules/hub-share-settings/hub-share-settings.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { HubShareSettingsModule } from './modules/hub-share-settings/hub-share-s
     WalletsModule,
     SettlementsModule,
     HubShareSettingsModule,
+    NotificationsModule,
   ],
 })
 export class AppModule {};
