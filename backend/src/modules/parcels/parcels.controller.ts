@@ -86,6 +86,14 @@ export class ParcelsController {
     return this.parcelsService.create(dto, courierId);
   }
 
+  @Post(':id/label-image')
+  @Roles(UserRole.COURIER)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Attach an uploaded private postal label image before hub selection' })
+  async attachLabelImage(@Param('id') id: string, @Body() body: CustodyEvidenceDto, @CurrentUser() user: UserPayload) {
+    return this.parcelsService.attachLabelImage(id, body.evidence_ref, user);
+  }
+
   @Post(':id/entry-fee/receipt')
   @Roles(UserRole.RECIPIENT)
   @HttpCode(HttpStatus.OK)
