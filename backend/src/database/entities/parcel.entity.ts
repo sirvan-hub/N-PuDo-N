@@ -28,6 +28,9 @@ export class ParcelEntity {
   @Column({ type: databaseDateColumnType, nullable: true })
   expired_at?: Date;
 
+  @Column({ type: databaseDateColumnType, nullable: true })
+  collected_at?: Date;
+
   @Column({ type: databaseUuidColumnType, nullable: true })
   proposed_hub_id: string;
 
