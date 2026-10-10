@@ -118,8 +118,6 @@ test('recipient PUDO request selects an active hub and advances the state machin
       if (entity === HubEntity) return { findOne: async () => hub };
       throw new Error('Unexpected repository');
     },
-    connection: { options: { type: 'sqlite' } },
-    query: async () => [],
   };
   const service = new ParcelsService(
     { findOne: async () => parcel },
