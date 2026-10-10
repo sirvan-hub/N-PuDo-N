@@ -25,7 +25,7 @@ export class CustodyTransferEntity {
   @Column({ type: 'varchar', length: 32 }) transfer_type: CustodyTransferType;
   @Column({ type: 'varchar', length: 16, default: CustodyTransferStatus.PENDING }) status: CustodyTransferStatus;
   @Column({ type: 'varchar', length: 32 }) code_salt: string;
-  @Column({ type: 'char', length: 64 }) code_hash: string;
+  @Column({ type: 'varchar', length: 64 }) code_hash: string;
   @Column({ type: databaseDateColumnType }) expires_at: Date;
   @Column({ type: databaseDateColumnType, nullable: true }) consumed_at?: Date;
   @Column({ type: 'int', default: 0 }) failed_attempts: number;
