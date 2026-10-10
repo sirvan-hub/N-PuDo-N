@@ -15,7 +15,8 @@ Create the bucket in Supabase Storage with **Public bucket disabled**. Do not cr
 Both endpoints require a Pudo-N bearer token:
 
 - `POST /v1/evidence/parcels/:parcelId` — multipart form with `file` and `category`. Supported categories:
-  - `LABEL_IMAGE` (assigned courier; attach the returned reference via `POST /v1/parcels/:id/label-image` before hub selection)\n  - `ENTRY_FEE_RECEIPT` (registered recipient)
+  - `LABEL_IMAGE` (assigned courier; attach the returned reference via `POST /v1/parcels/:id/label-image` before hub selection)
+  - `ENTRY_FEE_RECEIPT` (registered recipient)
   - `COURIER_HANDOVER` (assigned courier)
   - `HUB_RECEIPT` / `HUB_RELEASE` (assigned hub owner)
   - `RECIPIENT_HANDOVER` (registered recipient)
