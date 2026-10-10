@@ -102,3 +102,16 @@ Keep the already-tested core migration immutable. The following names are propos
 ## 7. Current outcome
 
 The additive domain migration and wallet contract implementation are present on the feature branch. The internal wallet service supports idempotent credit, pending credit, release-pending, hold, release-hold, and debit operations; authenticated wallet read APIs expose only the caller's own summary and ledger. This does not authorize a 70/30 revenue split, expose financial mutation endpoints, execute payouts, or alter production data. Remaining domain areas include payment-provider integration and external verification, executing approved payouts through a verified provider, allocation of the remainder between courier/platform (not approved), refunds, tariff-version selection, custody-code verification, and broader full-domain schema alignment. The approved 14-state parcel vocabulary is preserved.
+
+
+## Additive migrations added after the initial financial contract
+
+- `1791630000007-AddParcelInvitations`: recipient consent before parcel registration.
+- `1791630000008-AddDualPartyCustodyEvidence`: independent courier/hub custody evidence references.
+- `1791630000009-AddFinalHandoverEvidence`: separate code verification from final recipient handover evidence.
+- `1791630000010-AddRevenueAllocationSnapshot`: courier share and immutable 30/30/40 invoice allocation snapshots; legacy invoices are flagged for reconciliation rather than reallocated.
+- `1791630000011-AddRevenueAllocationLedger`: immutable per-charge allocation ledger.
+- `1791630000012-AddPostalLabelAndEntryCharge`: actual postal label fields and a separate network-entry charge lifecycle.
+- `1791630000013-LinkEntryFeesToRevenueAllocations`: allows the revenue ledger to reference either storage invoices or network-entry charges.
+
+All migrations are additive. The current CI rehearsal runs against a disposable PostgreSQL database only. These migrations must not be applied to Production without a separately reviewed backup, data-reconciliation plan, and explicit deployment authorization.
