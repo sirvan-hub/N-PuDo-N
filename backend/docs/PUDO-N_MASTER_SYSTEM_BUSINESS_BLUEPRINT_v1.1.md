@@ -190,3 +190,26 @@ These items do not block recording the core business model, but implementation m
 - Courier and hub payout workflows are actor-scoped, idempotent and ledger-backed.
 - All critical state transitions and financial/custody events are auditable and covered by regression/integration tests.
 - No merge, deployment, production data operation, or live provider transfer occurs as part of this branch work.
+
+
+## 10. Implementation progress and verified boundaries (2026-10-10)
+
+The following vertical slices have now been added to the feature branch; they must still pass the current head's CI before being treated as verified:
+
+- Recipient invitation/acceptance records, private in-app notification, audit events, PWA accept/reject actions, and an atomic backend gate requiring the matching accepted invitation before parcel registration.
+- Separate courier handover and hub receipt evidence-reference submissions. The parcel's hub custody and storage timer are set only after both parties have submitted evidence references.
+- Delivery code validity is one hour. Hub code verification is now a distinct event from parcel collection; final collection requires a recipient-side evidence confirmation as well.
+- Additive PostgreSQL migrations cover invitation and evidence fields. The PR remains Draft and unmerged.
+
+These are **evidence-reference workflows, not a completed image-storage system**. Until an approved private object-storage adapter is implemented and configured, the APIs cannot prove that a reference resolves to a fresh camera image, and the PWA does not yet upload/retrieve private images. Public URLs are rejected. Do not treat this boundary as production-ready photo verification.
+
+The following core work remains incomplete and is still required before the system can be called complete:
+
+- separate network-entry charge based on 30–40% of the actual postal postage amount, including label/barcode/sender fields and a private receipt workflow;
+- approved bank/payment verification source and safe manual-review queue;
+- immutable 30/30/40 per-charge allocation and balanced courier/hub/platform ledger entries for verified collected service revenue;
+- courier payout preferences/requests, and reconciliation of the existing hub payout flow;
+- final approved storage tariff schedule and expiry/remediation rules;
+- complete operational PWA and Android role panels, parcel registration and label review, hub selection/map, storage invoice/payment, camera-to-private-storage flow, and recipient final handover UI.
+
+The CI result is a statement about the code and tests executed at a specific commit only. It does not establish that an external payment provider, private storage, Android app, or production workflow is operational.
