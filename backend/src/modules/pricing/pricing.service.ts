@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { randomUUID } from 'node:crypto';
 
 /**
  * Pudo-N canonical tariff, measured from delivered_to_hub_at.
@@ -25,6 +26,26 @@ export class PricingService {
         ORDER BY effective_from DESC LIMIT 2`,
       postgres ? [now.toISOString()] : [now.toISOString(), now.toISOString()],
     );
+    if (rows.length === 0 && !postgres) {
+      // SQLite is local/test-only (blocked in production). Seed the approved default
+      // so a fresh developer database can price parcels without a manual SQL step.
+      await this.dataSource.query('UPDATE tariff_versions SET is_active = FALSE');
+      await this.dataSource.query(
+        `INSERT INTO tariff_versions
+          (id, version_key, effective_from, effective_until, is_active,
+           small_base_amount, medium_base_amount, large_base_amount,
+           under_12h_percent, from_12_to_24h_percent, additional_started_24h_percent,
+           expiry_hours, rounding_mode)
+         VALUES (?, ?, ?, NULL, TRUE, 18000, 25000, 35000, 20, 40, 50, 168, 'CEIL')
+         ON CONFLICT(version_key) DO UPDATE SET
+           effective_from = excluded.effective_from, effective_until = NULL, is_active = TRUE,
+           small_base_amount = 18000, medium_base_amount = 25000, large_base_amount = 35000,
+           under_12h_percent = 20, from_12_to_24h_percent = 40,
+           additional_started_24h_percent = 50, expiry_hours = 168, rounding_mode = 'CEIL'`,
+        [randomUUID(), 'PUDO-N-TARIFF-168H-V1', now.toISOString()],
+      );
+      return this.getActiveTariff(now);
+    }
     if (rows.length !== 1) throw new BadRequestException('Exactly one active effective tariff version is required');
     return rows[0];
   }
