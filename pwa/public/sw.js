@@ -1,5 +1,6 @@
 const CACHE_NAME = 'pudo-n-shell-v1';
 const APP_SHELL = ['/', '/manifest.webmanifest', '/pudo-mark.svg'];
+const STATIC_ASSET = /\.(?:js|css|svg|png|webmanifest)$/;
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));
@@ -23,7 +24,7 @@ self.addEventListener('fetch', (event) => {
 
   event.respondWith(
     fetch(request).then((response) => {
-      if (response.ok && (request.mode === 'navigate' || APP_SHELL.includes(url.pathname))) {
+      if (response.ok && (request.mode === 'navigate' || APP_SHELL.includes(url.pathname) || STATIC_ASSET.test(url.pathname))) {
         const copy = response.clone();
         caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
       }
