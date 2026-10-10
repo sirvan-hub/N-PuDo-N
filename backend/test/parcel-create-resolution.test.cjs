@@ -216,3 +216,74 @@ test('only the recipient can request customer collection', async () => {
     (error) => error && error.getStatus && error.getStatus() === 403,
   );
 });
+
+
+test('expired storage request records expiry and does not issue an invoice', async () => {
+  const parcel = {
+    id: 'parcel-expired-1', recipient_id: 'recipient-1', recipient_phone: dto.recipient_phone,
+    current_hub_id: 'hub-1', delivered_to_hub_at: new Date(Date.now() - 169 * 60 * 60 * 1000),
+    package_size: 'MEDIUM', base_post_cost: 25000, status: ParcelStatus.STORED_AT_HUB,
+  };
+  const manager = {
+    getRepository(entity) {
+      if (entity === ParcelEntity) return { findOne: async () => parcel, save: async (value) => value };
+      if (entity === InvoiceEntity) return { findOne: async () => null };
+      throw new Error('Unexpected repository');
+    },
+  };
+  const service = new ParcelsService(
+    { findOne: async () => parcel },
+    { findOne: async () => null },
+    { findOne: async () => ({ id: 'recipient-1' }) },
+    { transaction: async (work) => work(manager) },
+    {
+      resolveBaseCost: async () => ({ basePostCost: 25000, tariffVersionId: 'tariff-v1' }),
+      calculate: () => ({}),
+      calculateWithActiveTariff: async () => ({ isExpired: true, tariffVersionId: 'tariff-v1' }),
+    },
+    { create: async () => { throw new Error('Expired parcel must not be invoiced'); } },
+  );
+  const result = await service.requestCustomerCollection('parcel-expired-1', {
+    sub: 'recipient-1', phone: dto.recipient_phone, role: UserRole.RECIPIENT, is_verified: true,
+  });
+  assert.equal(result.expired, true);
+  assert.equal(result.invoice, null);
+  assert.equal(result.parcel.status, ParcelStatus.STORED_AT_HUB);
+  assert.ok(result.parcel.expired_at instanceof Date);
+});
+
+test('hub owner cannot release before payment and can release after invoice is paid', async () => {
+  const parcel = {
+    id: 'parcel-release-1', current_hub_id: 'hub-1', recipient_id: 'recipient-1',
+    status: ParcelStatus.READY_FOR_CUSTOMER, collected_at: null,
+  };
+  const hub = { id: 'hub-1', owner_id: 'owner-1' };
+  const invoice = { id: 'invoice-release-1', parcel_id: parcel.id, status: 'PENDING' };
+  const manager = {
+    getRepository(entity) {
+      if (entity === ParcelEntity) return { findOne: async () => parcel, save: async (value) => value };
+      if (entity === HubEntity) return { findOne: async () => hub };
+      if (entity === InvoiceEntity) return { findOne: async () => invoice };
+      throw new Error('Unexpected repository');
+    },
+  };
+  const service = new ParcelsService(
+    { findOne: async () => parcel },
+    { findOne: async () => hub },
+    { findOne: async () => null },
+    { transaction: async (work) => work(manager) },
+    { resolveBaseCost: async () => ({ basePostCost: 25000 }), calculate: () => ({}), calculateWithActiveTariff: async () => ({}) },
+    { create: async () => ({}) },
+  );
+  const owner = { sub: 'owner-1', phone: '+18880000001', role: UserRole.HUB_OWNER, is_verified: true };
+  await assert.rejects(service.confirmCustomerRelease(parcel.id, owner),
+    (error) => error && error.getStatus && error.getStatus() === 409);
+  assert.equal(parcel.status, ParcelStatus.READY_FOR_CUSTOMER);
+
+  invoice.status = 'PAID';
+  const result = await service.confirmCustomerRelease(parcel.id, owner);
+  assert.equal(result.alreadyReleased, false);
+  assert.equal(result.parcel.status, ParcelStatus.COLLECTED);
+  assert.ok(result.parcel.collected_at instanceof Date);
+  assert.equal(result.invoiceId, invoice.id);
+});
