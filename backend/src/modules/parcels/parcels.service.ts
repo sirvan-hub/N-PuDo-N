@@ -4,7 +4,7 @@ import { DataSource, Repository } from 'typeorm';
 import { createHash, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 import { ParcelEntity } from '../../database/entities/parcel.entity';
 import { AuditLogEntity } from '../../database/entities/audit-log.entity';
-import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationEntity } from '../../database/entities/notification.entity';
 import { HubEntity } from '../../database/entities/hub.entity';
 import { UserEntity } from '../../database/entities/user.entity';
 import { InvoiceEntity, PaymentStatus } from '../../database/entities/invoice.entity';
@@ -23,7 +23,6 @@ export class ParcelsService {
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly pricingService: PricingService,
     private readonly invoicesService: InvoicesService,
-    private readonly notificationsService: NotificationsService,
   ) {}
 
   async create(dto: any, courierId: string) {
@@ -307,7 +306,7 @@ export class ParcelsService {
         { parcel_id: parcelId, transfer_type: CustodyTransferType.HUB_TO_RECIPIENT, status: CustodyTransferStatus.PENDING },
         { status: CustodyTransferStatus.EXPIRED, failure_reason: 'Superseded by a newer delivery-code request' },
       );
-      return transfers.save(transfers.create({
+      const transfer = await transfers.save(transfers.create({
         parcel_id: parcelId,
         from_hub_id: lockedParcel.current_hub_id,
         receiver_id: lockedParcel.recipient_id,
@@ -318,37 +317,29 @@ export class ParcelsService {
         expires_at: expiresAt,
         failed_attempts: 0,
       }));
-    });
-
-    try {
-      await this.notificationsService.createForUser({
+      await manager.getRepository(NotificationEntity).save(manager.getRepository(NotificationEntity).create({
         user_id: actor.sub,
         category: 'DELIVERY_CODE',
         title: 'کد تحویل مرسوله',
-        body: `کد یک‌بارمصرف تحویل مرسوله ${parcel.tracking_code} برابر ${code} است. این کد تا ۱۰ دقیقه معتبر است و فقط یک‌بار استفاده می‌شود. کد را فقط هنگام تحویل واقعی مرسوله در اختیار هاب‌دار قرار دهید.`,
+        body: `کد یک‌بارمصرف تحویل مرسوله ${lockedParcel.tracking_code} برابر ${code} است. این کد تا ۱۰ دقیقه معتبر است و فقط یک‌بار استفاده می‌شود. کد را فقط هنگام تحویل واقعی مرسوله در اختیار هاب‌دار قرار دهید.`,
         reference_type: 'custody_transfer',
         reference_id: transfer.id,
         expires_at: expiresAt,
-      });
-    } catch {
-      await transferRepository.update(
-        { id: transfer.id, status: CustodyTransferStatus.PENDING },
-        { status: CustodyTransferStatus.EXPIRED, failure_reason: 'In-app notification persistence failed' },
-      );
-      throw new ConflictException('Delivery code could not be placed in the recipient inbox; request a new code');
-    }
-    await this.dataSource.getRepository(AuditLogEntity).save(this.dataSource.getRepository(AuditLogEntity).create({
-      actor_id: actor.sub,
-      actor_role: actor.role,
-      entity_type: 'custody_transfer',
-      entity_id: transfer.id,
-      action: 'DELIVERY_CODE_NOTIFIED_IN_APP',
-      old_state: null,
-      new_state: { status: CustodyTransferStatus.PENDING, expiresAt: expiresAt.toISOString(), deliveryChannel: 'IN_APP' },
-      transaction_id: transfer.id,
-      correlation_id: `delivery-code:${transfer.id}`,
-      metadata: { parcelId: parcel.id, recipientId: actor.sub, channel: 'IN_APP' },
-    }));
+      }));
+      await manager.getRepository(AuditLogEntity).save(manager.getRepository(AuditLogEntity).create({
+        actor_id: actor.sub,
+        actor_role: actor.role,
+        entity_type: 'custody_transfer',
+        entity_id: transfer.id,
+        action: 'DELIVERY_CODE_NOTIFIED_IN_APP',
+        old_state: null,
+        new_state: { status: CustodyTransferStatus.PENDING, expiresAt: expiresAt.toISOString(), deliveryChannel: 'IN_APP' },
+        transaction_id: transfer.id,
+        correlation_id: `delivery-code:${transfer.id}`,
+        metadata: { parcelId: lockedParcel.id, recipientId: actor.sub, channel: 'IN_APP' },
+      }));
+      return transfer;
+    });
     return { parcelId: parcel.id, transferId: transfer.id, sent: true, expiresAt: expiresAt.toISOString(), channel: 'IN_APP' };
   }
 
