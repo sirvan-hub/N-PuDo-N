@@ -5,6 +5,10 @@ import { createHash, randomBytes, randomInt, randomUUID, timingSafeEqual } from 
 import { ParcelEntity } from '../../database/entities/parcel.entity';
 import { ParcelInvitationEntity, ParcelInvitationStatus } from '../../database/entities/parcel-invitation.entity';
 import { NetworkEntryChargeEntity, NetworkEntryChargeStatus } from '../../database/entities/network-entry-charge.entity';
+import { RevenueAllocationEntity, RevenueBeneficiaryType } from '../../database/entities/revenue-allocation.entity';
+import { IdempotencyRecordEntity, IdempotencyState } from '../../database/entities/idempotency-record.entity';
+import { WalletEntity } from '../../database/entities/wallet.entity';
+import { WalletTransactionEntity, WalletBucket, WalletTransactionType } from '../../database/entities/wallet-transaction.entity';
 import { AuditLogEntity } from '../../database/entities/audit-log.entity';
 import { NotificationEntity } from '../../database/entities/notification.entity';
 import { HubEntity } from '../../database/entities/hub.entity';
@@ -387,6 +391,125 @@ export class ParcelsService {
     });
   }
 
+  private async allocateNetworkEntryRevenue(manager: any, charge: NetworkEntryChargeEntity, parcel: ParcelEntity, hub: HubEntity, actorId: string) {
+    const allocations = manager.getRepository(RevenueAllocationEntity);
+    const existing = await allocations.findOne({
+      where: { charge_type: 'NETWORK_ENTRY', network_entry_charge_id: charge.id, beneficiary_type: RevenueBeneficiaryType.COURIER },
+    });
+    if (existing) return;
+
+    if (!parcel.courier_id || !hub.owner_id) throw new ConflictException('Courier and hub owner are required for revenue allocation');
+    const total = Number(charge.amount);
+    if (!Number.isSafeInteger(total) || total < 0) throw new ConflictException('Network-entry charge amount is invalid');
+    const courierShare = Math.floor(total * 30 / 100);
+    const hubShare = Math.floor(total * 30 / 100);
+    const platformShare = total - courierShare - hubShare;
+    const snapshot = {
+      snapshotVersion: 2,
+      allocationStatus: 'ALLOCATED_30_30_40',
+      chargeType: 'NETWORK_ENTRY',
+      chargeId: charge.id,
+      parcelId: parcel.id,
+      postalPostageAmount: charge.postal_postage_amount,
+      entryFeePercent: Number(charge.fee_percent),
+      basisAmount: total,
+      currencyUnit: 'TOMAN',
+      shares: {
+        courier: { percent: 30, amount: courierShare },
+        hub: { percent: 30, amount: hubShare },
+        platform: { percent: 40, amount: platformShare },
+      },
+      rounding: 'FLOOR_COURIER_AND_HUB_REMAINDER_TO_PLATFORM',
+      sumCheck: courierShare + hubShare + platformShare,
+      capturedAt: new Date().toISOString(),
+    };
+    const split = [
+      { type: RevenueBeneficiaryType.COURIER, userId: parcel.courier_id, amount: courierShare, percent: 30 },
+      { type: RevenueBeneficiaryType.HUB, userId: hub.owner_id, amount: hubShare, percent: 30 },
+      { type: RevenueBeneficiaryType.PLATFORM, userId: null, amount: platformShare, percent: 40 },
+    ];
+    for (const item of split) {
+      await allocations.save(allocations.create({
+        charge_type: 'NETWORK_ENTRY',
+        charge_id: null,
+        network_entry_charge_id: charge.id,
+        parcel_id: parcel.id,
+        beneficiary_type: item.type,
+        beneficiary_id: item.userId,
+        percentage: item.percent,
+        amount: String(item.amount),
+        currency_unit: 'TOMAN',
+        allocation_snapshot: snapshot,
+      }));
+      if (item.userId && item.amount > 0) {
+        await this.creditRevenueWallet(manager, item.userId, item.amount, charge.id, actorId, item.type);
+      }
+    }
+    await manager.getRepository(AuditLogEntity).save(manager.getRepository(AuditLogEntity).create({
+      actor_id: actorId,
+      actor_role: UserRole.RECIPIENT,
+      entity_type: 'network_entry_charge',
+      entity_id: charge.id,
+      action: 'NETWORK_ENTRY_REVENUE_ALLOCATED',
+      old_state: { allocationStatus: 'VERIFIED_PENDING_HUB_SELECTION' },
+      new_state: snapshot,
+      transaction_id: charge.id,
+      correlation_id: `network-entry-allocation:${charge.id}`,
+      metadata: { parcelId: parcel.id, hubId: hub.id },
+    }));
+  }
+
+  private async creditRevenueWallet(manager: any, userId: string, amount: number, chargeId: string, actorId: string, beneficiaryType: RevenueBeneficiaryType) {
+    const operationType = `revenue.allocate.entry.${beneficiaryType.toLowerCase()}`;
+    const actorScope = `revenue:network-entry:${chargeId}`;
+    const idempotencyKey = `network-entry:${chargeId}:${beneficiaryType.toLowerCase()}`;
+    const requestHash = createHash('sha256').update(JSON.stringify({ chargeId, userId, amount, operationType })).digest('hex');
+    const idemRepo = manager.getRepository(IdempotencyRecordEntity);
+    await idemRepo.createQueryBuilder().insert().values({
+      actor_scope: actorScope, operation_type: operationType, idempotency_key: idempotencyKey,
+      request_hash: requestHash, state: IdempotencyState.IN_PROGRESS,
+    }).orIgnore().execute();
+    const idem = await idemRepo.findOne({ where: { actor_scope: actorScope, operation_type: operationType, idempotency_key: idempotencyKey } });
+    if (!idem || idem.request_hash !== requestHash) throw new ConflictException('Unable to establish entry-fee allocation idempotency record');
+    if (idem.state === IdempotencyState.COMPLETED) return;
+
+    const wallets = manager.getRepository(WalletEntity);
+    await wallets.createQueryBuilder().insert().values({ user_id: userId }).orIgnore().execute();
+    const postgres = manager.connection.options.type === 'postgres';
+    const wallet = await wallets.findOne({
+      where: { user_id: userId },
+      ...(postgres ? { lock: { mode: 'pessimistic_write' as const } } : {}),
+    });
+    if (!wallet) throw new ConflictException('Unable to load wallet for entry-fee allocation');
+    const balance = Number(wallet.balance) + amount;
+    const totalEarned = Number(wallet.total_earned) + amount;
+    if (!Number.isSafeInteger(balance) || !Number.isSafeInteger(totalEarned) || balance > 2_147_483_647 || totalEarned > 2_147_483_647) {
+      throw new ConflictException('Entry-fee allocation exceeds wallet limits');
+    }
+    wallet.balance = balance;
+    wallet.total_earned = totalEarned;
+    await wallets.save(wallet);
+    const ledger = manager.getRepository(WalletTransactionEntity);
+    await ledger.save(ledger.create({
+      wallet_id: wallet.id,
+      actor_id: actorId,
+      idempotency_record_id: idem.id,
+      transaction_type: WalletTransactionType.EARNING_CREDIT,
+      bucket: WalletBucket.AVAILABLE,
+      amount: String(amount),
+      bucket_balance_after: String(balance),
+      currency_unit: 'TOMAN',
+      reference_type: 'network_entry_charge',
+      reference_id: chargeId,
+      description: `Pudo-N network-entry ${beneficiaryType.toLowerCase()} share`,
+    }));
+    idem.state = IdempotencyState.COMPLETED;
+    idem.response_status = 200;
+    idem.response_body = { chargeId, userId, amount, balance };
+    idem.completed_at = new Date();
+    await idemRepo.save(idem);
+  }
+
   async requestPudo(parcelId: string, hubId: string, actor: UserPayload) {
     if (actor.role !== UserRole.RECIPIENT) {
       throw new ForbiddenException('Only the parcel recipient can request PUDO');
@@ -426,6 +549,7 @@ export class ParcelsService {
       const oldStatus = parcel.status;
       parcel.proposed_hub_id = hub.id;
       parcel.status = nextStatus;
+      await this.allocateNetworkEntryRevenue(manager, entryCharge, parcel, hub, actor.sub);
       parcel.updated_at = new Date();
       const saved = await parcels.save(parcel);
       await manager.getRepository(AuditLogEntity).save(manager.getRepository(AuditLogEntity).create({
