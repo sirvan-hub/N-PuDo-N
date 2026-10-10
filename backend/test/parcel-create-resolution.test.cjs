@@ -53,7 +53,7 @@ function makeService({ recipient = { id: 'recipient-1', phone: dto.recipient_pho
 }
 
 test('parcel creation resolves recipient and validates the proposed hub without claiming custody', async () => {
-  const { service, saved } = makeService();
+  const { service, saved, entryCharges } = makeService();
   const parcel = await service.create(dto, 'courier-1');
   assert.equal(parcel.recipient_id, 'recipient-1');
   assert.equal(parcel.proposed_hub_id, 'hub-1');
