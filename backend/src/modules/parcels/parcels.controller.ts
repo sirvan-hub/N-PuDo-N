@@ -28,7 +28,7 @@ class CustodyEvidenceDto {
 
 class ConfirmCustomerReleaseDto {
   @IsString()
-  @Matches(/^\d{4,6}$/)
+  @Matches(/^\d{6}$/)
   deliveryCode: string;
 
   @IsString()
