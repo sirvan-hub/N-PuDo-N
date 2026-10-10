@@ -14,6 +14,8 @@ import { ParcelStatus, canTransitionParcel } from './parcel-state-machine';
 import { PricingService } from '../pricing/pricing.service';
 import { InvoicesService } from '../invoices/invoices.service';
 
+export const DELIVERY_CODE_TTL_MS = 60 * 60_000;
+
 @Injectable()
 export class ParcelsService {
   constructor(
@@ -334,7 +336,7 @@ export class ParcelsService {
     const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
     const salt = randomBytes(16).toString('hex');
     const requestedAt = new Date();
-    const expiresAt = new Date(requestedAt.getTime() + 10 * 60_000);
+    const expiresAt = new Date(requestedAt.getTime() + DELIVERY_CODE_TTL_MS);
     const transfer = await this.dataSource.transaction(async (manager) => {
       const lockedParcel = await this.findParcelForUpdate(manager, parcelId);
       if (!lockedParcel || lockedParcel.recipient_id !== actor.sub ||
