@@ -9,6 +9,7 @@ export class WalletEntity {
   @OneToOne(() => UserEntity) @JoinColumn({ name: 'user_id' }) user: UserEntity;
   @Column({ type: 'integer', default: 0 }) balance: number;
   @Column({ type: 'integer', default: 0 }) pending_balance: number;
+  @Column({ type: 'integer', default: 0 }) blocked_balance: number;
   @Column({ type: 'integer', default: 0 }) total_earned: number;
   @CreateDateColumn({ type: databaseDateColumnType }) created_at: Date;
   @UpdateDateColumn({ type: databaseDateColumnType }) updated_at: Date;
