@@ -11,15 +11,15 @@ export class InvoicesService {
     if (!parcel?.recipient_id || !parcel?.current_hub_id) {
       throw new BadRequestException('Invoice requires a resolved recipient and current hub');
     }
-    const hubShare = Math.round(pricing.calculatedFee * 0.7);
-    const platformFee = pricing.calculatedFee - hubShare;
+    // Revenue allocation has not been approved; do not encode the historical 70/30 assumption.
+    // Keep compatibility columns at zero until an explicit commercial rule is approved.
     const invoice = this.repo.create({
       invoice_number: 'INV-' + Date.now(),
       parcel_id: parcel.id, recipient_id: parcel.recipient_id, hub_id: parcel.current_hub_id,
       base_post_cost: pricing.basePostCost, elapsed_hours: pricing.elapsedHours,
       fee_percentage: pricing.feePercentage * 100, calculated_fee: pricing.calculatedFee,
       total_amount: pricing.calculatedFee, status: PaymentStatus.PENDING,
-      hub_owner_share: hubShare, platform_fee: platformFee,
+      hub_owner_share: 0, platform_fee: 0,
     });
     return this.repo.save(invoice);
   }
