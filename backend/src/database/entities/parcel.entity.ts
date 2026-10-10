@@ -28,30 +28,6 @@ export class ParcelEntity {
   @Column({ type: databaseUuidColumnType, nullable: true })
   tariff_version_id?: string;
 
-  @Column({ type: 'varchar', length: 128, nullable: true })
-  delivery_code_hash?: string;
-
-  @Column({ type: databaseDateColumnType, nullable: true })
-  delivery_code_expires_at?: Date;
-
-  @Column({ type: 'int', default: 0 })
-  delivery_code_attempts: number;
-
-  @Column({ type: databaseDateColumnType, nullable: true })
-  delivery_code_consumed_at?: Date;
-
-  @Column({ type: databaseDateColumnType, nullable: true })
-  delivery_code_requested_at?: Date;
-
-  @Column({ type: databaseDateColumnType, nullable: true })
-  delivery_verified_at?: Date;
-
-  @Column({ type: databaseUuidColumnType, nullable: true })
-  delivery_verified_by?: string;
-
-  @Column({ type: 'varchar', length: 4, nullable: true })
-  delivery_national_id_last4?: string;
-
   @Column({ type: databaseDateColumnType, nullable: true })
   expired_at?: Date;
 
