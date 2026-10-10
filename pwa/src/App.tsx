@@ -154,7 +154,7 @@ export default function App() {
     setPayoutMessage('');
     try {
       const body: Record<string, unknown> = { frequency: payoutFrequency };
-      if (payoutDestinationToken.trim() || payoutDestinationLast4.trim()) {
+      if (payoutDestinationToken.trim()) {
         if (!payoutDestinationToken.trim() || !/^\d{4}$/.test(payoutDestinationLast4.trim())) {
           throw new Error('برای تنظیم مقصد، شناسه مرجع و چهار رقم پایانی را کامل وارد کنید.');
         }
