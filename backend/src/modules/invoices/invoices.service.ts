@@ -60,7 +60,7 @@ export class InvoicesService {
         feePercentage: pricing.feePercentage * 100, calculatedFee: totalAmount,
         currencyUnit: 'TOMAN',
       },
-      tariff_version_id: null,
+      tariff_version_id: pricing.tariffVersionId ?? null,
       hub_share_percent: hubSharePercent, hub_share_snapshot: snapshot,
     });
     return invoiceRepo.save(invoice);
