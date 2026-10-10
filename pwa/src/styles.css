@@ -93,3 +93,18 @@ input::placeholder{color:#b3beb6;letter-spacing:1px}
 .notification-expiry{display:block;color:#8b9c90;font-size:10px}
 .notification-card .text-button{margin-top:5px;padding:5px 0}
 @media(max-width:640px){.notification-section{padding:16px}.notification-card{padding:12px}.notification-card-top{flex-direction:column;gap:5px}.notification-card-top time{white-space:normal}.notification-heading h2{font-size:15px}}
+
+
+.workflow-card{margin:0 0 24px;padding:22px;background:#fff;border:1px solid #e4ece4;border-radius:17px}
+.workflow-card h2{font-size:17px;margin:6px 0 8px}
+.workflow-card>.muted{margin:0 0 17px}
+.invitation-form{display:grid;grid-template-columns:1fr;gap:9px}
+.invitation-form label{margin-top:5px}
+.invitation-form input,.invitation-form textarea,.invitation-form select{font:inherit;width:100%;border:1px solid #dce6dc;border-radius:11px;background:#fbfcfa;padding:11px 14px;outline:none;color:#183e35}
+.invitation-form input{height:46px}
+.invitation-form input[type=file]{height:auto;min-height:46px;padding:10px;font-size:11px}
+.invitation-form textarea{min-height:95px;resize:vertical}
+.invitation-form select{min-height:46px}
+.invitation-form input:focus,.invitation-form textarea:focus,.invitation-form select:focus{border-color:#5a9b7b;box-shadow:0 0 0 3px #4a997515}
+.invitation-form .primary-button,.invitation-form .outline-button{width:100%;margin-top:8px}
+@media(max-width:640px){.workflow-card{padding:16px}.invitation-form input[type=file]{font-size:10px}}
