@@ -148,6 +148,64 @@ test('domain financial contracts enforce invoice states, idempotency, and custod
   }
 });
 
+test('wallet credit is atomic and concurrent retries return the same result', async (t) => {
+  if (!isPostgres) {
+    t.skip('Set DB_TYPE=postgres to exercise the real transactional wallet service');
+    return;
+  }
+
+  const dataSource = require('../dist/database/data-source').default;
+  const { WalletsService } = require('../dist/modules/wallets/wallets.service');
+  await dataSource.initialize();
+
+  try {
+    const suffix = Math.random().toString(16).slice(2, 10);
+    const user = await dataSource.query(
+      'INSERT INTO users (phone, role) VALUES ($1, $2) RETURNING id',
+      [`+1777${suffix}`, 'RECIPIENT'],
+    );
+    const userId = user[0].id;
+    const service = new WalletsService(dataSource);
+    const key = `wallet-credit-${suffix}`;
+
+    const results = await Promise.all(
+      Array.from({ length: 8 }, () => service.credit(userId, 2500, key)),
+    );
+    for (const result of results) {
+      assert.equal(result.walletId, results[0].walletId);
+      assert.equal(result.balance, 2500);
+      assert.equal(result.ledgerTransactionId, results[0].ledgerTransactionId);
+    }
+
+    const wallets = await dataSource.query(
+      'SELECT balance, total_earned FROM wallets WHERE user_id = $1',
+      [userId],
+    );
+    assert.equal(Number(wallets[0].balance), 2500);
+    assert.equal(Number(wallets[0].total_earned), 2500);
+
+    const ledger = await dataSource.query(
+      'SELECT count(*)::int AS count, sum(amount)::text AS total FROM wallet_transactions WHERE wallet_id = $1',
+      [results[0].walletId],
+    );
+    assert.equal(ledger[0].count, 1);
+    assert.equal(ledger[0].total, '2500');
+
+    await assert.rejects(
+      service.credit(userId, 2600, key),
+      (error) => error && error.getStatus && error.getStatus() === 409,
+    );
+
+    const afterConflict = await dataSource.query(
+      'SELECT balance FROM wallets WHERE user_id = $1',
+      [userId],
+    );
+    assert.equal(Number(afterConflict[0].balance), 2500);
+  } finally {
+    await dataSource.destroy();
+  }
+});
+
 test('additive migration backfills nonzero existing wallet balances as opening ledger entries', async (t) => {
   if (!isPostgres) {
     t.skip('Set DB_TYPE=postgres to run migration rehearsal');
