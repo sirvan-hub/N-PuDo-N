@@ -724,12 +724,6 @@ export class ParcelsService {
       if (!transfer || !transfer.code_verified_at || !transfer.hub_handover_evidence_ref) {
         throw new ConflictException('Hub must verify the one-time code and submit handover evidence first');
       }
-      if (transfer.expires_at.getTime() <= Date.now()) {
-        transfer.status = CustodyTransferStatus.EXPIRED;
-        transfer.failure_reason = 'Delivery code expired before recipient evidence';
-        await transfers.save(transfer);
-        throw new UnauthorizedException('Delivery code expired before final handover was confirmed');
-      }
       if (transfer.recipient_handover_evidence_ref) {
         if (transfer.recipient_handover_evidence_ref === evidenceRef) {
           return { parcel, transfer, alreadyConfirmed: parcel.status === ParcelStatus.COLLECTED };
