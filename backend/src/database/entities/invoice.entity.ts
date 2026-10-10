@@ -21,7 +21,7 @@ export class InvoiceEntity {
   @Column({ type: 'integer' }) hub_owner_share: number;
   @Column({ type: 'integer' }) platform_fee: number;
   @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true }) hub_share_percent: number;
-  @Column({ type: databaseJsonColumnType, nullable: true }) tariff_snapshot: Record<string, unknown>;
+  @Column({ type: databaseJsonColumnType }) tariff_snapshot: Record<string, unknown>;
   @Column({ type: databaseUuidColumnType, nullable: true }) tariff_version_id?: string;
   @Column({ type: databaseJsonColumnType, nullable: true }) hub_share_snapshot: Record<string, unknown>;
   @Column({ type: databaseDateColumnType, nullable: true }) paid_at: Date;
