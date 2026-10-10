@@ -7,9 +7,10 @@ import { HubEntity } from '../../database/entities/hub.entity';
 import { UserEntity } from '../../database/entities/user.entity';
 import { PricingModule } from '../pricing/pricing.module';
 import { InvoicesModule } from '../invoices/invoices.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([ParcelEntity, HubEntity, UserEntity]), PricingModule, InvoicesModule],
+  imports: [TypeOrmModule.forFeature([ParcelEntity, HubEntity, UserEntity]), PricingModule, InvoicesModule, NotificationsModule],
   controllers: [ParcelsController],
   providers: [ParcelsService],
   exports: [ParcelsService],
