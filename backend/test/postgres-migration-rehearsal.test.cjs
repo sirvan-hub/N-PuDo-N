@@ -51,6 +51,29 @@ test('migrated core schema accepts a relational test-data rehearsal and rolls it
       'INSERT INTO parcels (id, tracking_code, recipient_phone, recipient_name, recipient_address, base_post_cost, proposed_hub_id, recipient_id, current_hub_id, courier_id, delivered_to_hub_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())',
       [parcelId, 'CI-' + parcelId, '+989120000002', 'Test Recipient', 'Test address', 50000, hubId, recipientId, hubId, courierId],
     );
+    const canonicalStatuses = [
+      'PENDING_APPROVAL', 'DELIVERY_ATTEMPT', 'CUSTOMER_REQUEST', 'FAILED_DELIVERY',
+      'PUDO_ELIGIBILITY', 'HUB_SELECTED', 'HANDOVER_IN_PROGRESS', 'TRANSFERRED_TO_HUB',
+      'STORED_AT_HUB', 'READY_FOR_CUSTOMER', 'CUSTOMER_COLLECTION', 'COLLECTED',
+      'DELIVERED', 'SETTLEMENT',
+    ];
+    for (const status of canonicalStatuses) {
+      await db.query(
+        'INSERT INTO parcels (id, tracking_code, recipient_phone, recipient_name, recipient_address, base_post_cost, status, proposed_hub_id, recipient_id, current_hub_id, courier_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
+        [randomUUID(), 'CI-' + randomUUID(), '+989120000002', 'Test Recipient', 'Test address', 50000, status, hubId, recipientId, hubId, courierId],
+      );
+    }
+
+    await db.query('SAVEPOINT invalid_parcel_status');
+    await assert.rejects(
+      db.query(
+        'INSERT INTO parcels (tracking_code, recipient_phone, recipient_name, recipient_address, base_post_cost, status) VALUES ($1, $2, $3, $4, $5, $6)',
+        ['CI-invalid-' + randomUUID(), '+989120000099', 'Invalid Status Test', 'Test address', 1000, 'NOT_A_CANONICAL_STATUS'],
+      ),
+      /ck_parcels_status_valid|check constraint/i,
+    );
+    await db.query('ROLLBACK TO SAVEPOINT invalid_parcel_status');
+
     await db.query(
       'INSERT INTO invoices (invoice_number, parcel_id, recipient_id, hub_id, base_post_cost, elapsed_hours, fee_percentage, calculated_fee, total_amount, hub_owner_share, platform_fee) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
       ['CI-' + parcelId.replace(/-/g, '').slice(0, 20), parcelId, recipientId, hubId, 50000, 12, 40, 20000, 20000, 14000, 6000],
