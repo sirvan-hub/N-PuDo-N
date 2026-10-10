@@ -1,8 +1,8 @@
-﻿import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, Index, ManyToOne, JoinColumn } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, Index, ManyToOne, JoinColumn } from 'typeorm';
 import { ParcelEntity } from './parcel.entity';
-import { databaseDateColumnType, databaseUuidColumnType } from '../database-column-types';
+import { databaseDateColumnType, databaseJsonColumnType, databaseUuidColumnType } from '../database-column-types';
 
-export enum PaymentStatus { PENDING = 'PENDING', PAID = 'PAID', FAILED = 'FAILED', REFUNDED = 'REFUNDED' }
+export enum PaymentStatus { PENDING = 'PENDING', PAID = 'PAID', FAILED = 'FAILED', REFUNDED = 'REFUNDED', OVERDUE = 'OVERDUE', CANCELLED = 'CANCELLED' }
 
 @Entity('invoices')
 export class InvoiceEntity {
@@ -20,6 +20,8 @@ export class InvoiceEntity {
   @Column({ type: 'varchar', length: 20, default: PaymentStatus.PENDING }) status: PaymentStatus;
   @Column({ type: 'integer' }) hub_owner_share: number;
   @Column({ type: 'integer' }) platform_fee: number;
+  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true }) hub_share_percent: number;
+  @Column({ type: databaseJsonColumnType, nullable: true }) hub_share_snapshot: Record<string, unknown>;
   @Column({ type: databaseDateColumnType, nullable: true }) paid_at: Date;
   @CreateDateColumn({ type: databaseDateColumnType }) created_at: Date;
   @UpdateDateColumn({ type: databaseDateColumnType }) updated_at: Date;
