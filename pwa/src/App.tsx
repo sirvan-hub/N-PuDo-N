@@ -45,24 +45,38 @@ export default function App() {
       return;
     }
     let cancelled = false;
+    let firstLoad = true;
     setNotificationsLoading(true);
     setNotificationError('');
-    fetch(`${apiBase}/notifications`, {
-      headers: { Authorization: `Bearer ${session.token}` },
-    })
-      .then(async (response) => {
+
+    const loadNotifications = async () => {
+      try {
+        const response = await fetch(`${apiBase}/notifications`, {
+          headers: { Authorization: `Bearer ${session.token}` },
+        });
         const body: unknown = await response.json().catch(() => []);
         if (!response.ok) throw new Error(getApiError(body, `دریافت پیام‌ها ناموفق بود (HTTP ${response.status}).`));
         if (!Array.isArray(body)) throw new Error('ساختار پاسخ صندوق پیام معتبر نیست.');
-        if (!cancelled) setNotifications(body as AppNotification[]);
-      })
-      .catch((cause: unknown) => {
+        if (!cancelled) {
+          setNotifications(body as AppNotification[]);
+          setNotificationError('');
+        }
+      } catch (cause) {
         if (!cancelled) setNotificationError(cause instanceof Error ? cause.message : 'دریافت پیام‌ها ناموفق بود.');
-      })
-      .finally(() => {
-        if (!cancelled) setNotificationsLoading(false);
-      });
-    return () => { cancelled = true; };
+      } finally {
+        if (!cancelled && firstLoad) {
+          firstLoad = false;
+          setNotificationsLoading(false);
+        }
+      }
+    };
+
+    void loadNotifications();
+    const refreshTimer = setInterval(() => { void loadNotifications(); }, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(refreshTimer);
+    };
   }, [session]);
 
   async function markNotificationRead(notificationId: string) {
