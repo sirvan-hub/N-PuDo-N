@@ -1,7 +1,7 @@
 # Financial, Idempotency, and Custody Data Contracts
 
 **Status:** Approved implementation contract for the additive PostgreSQL migration on `feat/postgres-migrations-ci`.
-**Scope:** additive schema, internal atomic wallet operations, authenticated read-only wallet APIs, and PostgreSQL integration/authorization tests on the feature branch. No public financial mutation endpoint or production financial posting is enabled.
+**Scope:** additive schema, internal atomic wallet operations, authenticated read-only wallet APIs, and an administrator-only invoice-payment reconciliation endpoint on the feature branch. The reconciliation endpoint records a payment that must already have been verified externally; it does not call a provider, allocate revenue shares, or execute payouts.
 **Safety:** the initial migration is immutable; CI uses disposable PostgreSQL only; no production database, Render service, DNS, or `main` changes.
 
 ## 1. Wallet and immutable ledger
@@ -12,7 +12,7 @@
 - `wallets.total_earned` is a cumulative reporting metric for earned credits; it is not the spendable balance and must not be decremented by payout.
 - `wallet_transactions` is the immutable record of balance-bucket movements. `amount` is a positive whole-toman magnitude; transaction type plus bucket identifies the movement direction. For a two-bucket movement (hold/release), one ledger row is written for each affected bucket, each recording that bucket's resulting balance.
 - The invariant for each wallet and bucket is: the bucket balance equals the sum of its opening-balance entry plus all later ledger entries in that bucket. Available, pending, and blocked balances must never be combined implicitly.
-- Posting ledger rows and updating the affected wallet balance buckets must occur in the same database transaction. `WalletsService.credit`, `creditPending`, `releasePending`, `hold`, `releaseHold`, and `debit` use transactions, PostgreSQL row locking, and an idempotency record written in the same transaction. `debit` is an internal wallet posting only; payout-provider execution and settlement orchestration remain separate workflows.
+- Posting ledger rows and updating the affected wallet balance buckets must occur in the same database transaction. `WalletsService.credit`, `creditPending`, `releasePending`, `hold`, `releaseHold`, and `debit` use transactions, PostgreSQL row locking, and an idempotency record written in the same transaction. `debit` is an internal wallet posting only; payout-provider execution and revenue allocation remain separate workflows.
 - Ledger entries are append-only by application contract. Corrections use compensating entries, not UPDATE/DELETE. The database migration does not install a trigger that prevents a privileged database operator from editing rows.
 - Existing nonzero available and pending balances are represented by deterministic opening entries during migration. `blocked_balance` is introduced by this migration and starts at zero. Historical movements before this migration cannot be reconstructed; the opening entries establish a migration-time starting point only.
 - No revenue split is approved by this contract. Existing `hub_owner_share` and `platform_fee` fields remain for compatibility but must not be treated as approval of the currently coded 70/30 calculation.
@@ -41,7 +41,15 @@
 - A fixed expiry duration, maximum failed attempts, and lockout duration are not yet approved. The schema records expiry/attempts but intentionally does not hard-code those policy values.
 - Registration, custody handover, and settlement remain distinct events and tables.
 
-## 5. Explicitly unresolved / not authorized by this contract
+## 5. Settlement reconciliation slice
+
+- `POST /v1/settlements/invoices/:invoiceId/confirm-payment` is restricted by JWT and role guards to `ADMIN` and `SUPER_ADMIN`.
+- The endpoint accepts an Idempotency-Key header and a provider reference. It is for recording a payment that has already been verified with the payment provider or by an authorized reconciliation process; it must not be used as evidence that a payment occurred without independent verification.
+- Only an invoice in `PENDING` can be confirmed. The invoice transition to `PAID`, `paid_at`, completed `PAYMENT` settlement record, audit record, and idempotency response commit or roll back together.
+- Same-key/same-request retries return the saved response; same key with a different request conflicts. Completed payment provider references are protected by a unique partial index.
+- This slice does not transfer money into a hub wallet, calculate a hub/platform split, execute refunds or payouts, or contact a payment provider. The 70/30 split remains unapproved.
+
+## 6. Explicitly unresolved / not authorized by this contract
 
 1. The 70/30 revenue split is not approved. No migration constraint or new service should enforce it as policy.
 2. The exact currency code/representation for gateways and reports (whole toman is the current project convention; external ISO currency mapping remains open).
@@ -51,7 +59,7 @@
 6. Business policy for cancellation/refund eligibility and due-date calculation.
 7. Production data migration. This change only rehearses schema on ephemeral PostgreSQL; no SQLite records are imported into production.
 
-## 6. Acceptance checks
+## 7. Acceptance checks
 
 - The initial migration file remains byte-for-byte unchanged.
 - The new migration is additive and reversible on a disposable PostgreSQL database.
@@ -60,4 +68,5 @@
 - Ledger amount is a positive magnitude with bucket/type direction semantics; idempotency scope is unique, and same-key/different-hash conflict is covered by integration tests.
 - Custody code hash format, expiry, single-use metadata, and bounded numeric attempt counter are structurally validated; the schema does not invent an attempt-limit policy.
 - Existing wallet available/pending balances are represented by opening ledger entries.
-- PostgreSQL CI applies both migrations, runs tests, then reverts both migrations on the disposable service.
+- PostgreSQL CI applies the additive migrations, runs tests, then reverts them on the disposable service.
+- Invoice payment reconciliation is administrator-only, atomic across invoice/settlement/audit/idempotency records, rejects repeated payment references, and is verified by PostgreSQL integration tests.
