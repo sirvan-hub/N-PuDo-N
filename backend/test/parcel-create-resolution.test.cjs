@@ -35,6 +35,7 @@ function makeService({ recipient = { id: 'recipient-1', phone: dto.recipient_pho
     if (entity === ParcelEntity) return { create: (value) => ({ ...value, id: value.id || 'parcel-created-1' }), save: async (value) => { saved.push(value); return value; } };
     if (entity === ParcelInvitationEntity) return { findOne: async () => ({ id: dto.invitation_id, courier_id: 'courier-1', recipient_id: 'recipient-1', recipient_phone: dto.recipient_phone, status: ParcelInvitationStatus.ACCEPTED, responded_at: new Date() }), update: async () => ({ affected: 1 }) };
     if (entity === NetworkEntryChargeEntity) return { create: (value) => ({ ...value }), save: async (value) => { entryCharges.push(value); return value; } };
+    if (entity === NotificationEntity) return { create: (value) => ({ ...value }), save: async (value) => value };
     if (entity === AuditLogEntity) return { create: (value) => value, save: async (value) => value };
     throw new Error('Unexpected repository in makeService');
   } };
@@ -48,7 +49,7 @@ function makeService({ recipient = { id: 'recipient-1', phone: dto.recipient_pho
       calculateWithActiveTariff: async () => ({ basePostCost: 18000, elapsedHours: 13, feePercentage: 0.4, calculatedFee: 7200, isExpired: false, tariffVersionId: 'tariff-v1', tariffSnapshot: { tariffKey: 'PUDO-N-TARIFF-168H-V1', appliedPercentage: 40 } }) },
     { create: async (parcel, pricing, manager) => ({ parcel_id: parcel.id, hub_id: parcel.current_hub_id, snapshot: { percentage: 30 }, amount: pricing.calculatedFee }) },
   );
-  return { service, saved };
+  return { service, saved, entryCharges };
 }
 
 test('parcel creation resolves recipient and validates the proposed hub without claiming custody', async () => {
@@ -62,6 +63,10 @@ test('parcel creation resolves recipient and validates the proposed hub without 
   assert.equal(parcel.base_post_cost, 25000);
   assert.equal(parcel.tariff_version_id, 'tariff-v1');
   assert.equal(saved.length, 1);
+  assert.equal(entryCharges.length, 1);
+  assert.equal(entryCharges[0].postal_postage_amount, 18000);
+  assert.equal(entryCharges[0].amount, 5400);
+  assert.equal(entryCharges[0].status, NetworkEntryChargeStatus.PENDING_RECEIPT);
 });
 
 test('parcel registration rejects missing recipient consent invitation', async () => {
@@ -140,6 +145,7 @@ test('custody is finalized only when courier and hub evidence both exist', async
     getRepository(entity) {
       if (entity === ParcelEntity) return { findOne: async () => parcel, save: async (value) => value };
       if (entity === HubEntity) return { findOne: async () => hub };
+      if (entity === NetworkEntryChargeEntity) return { findOne: async () => ({ status: NetworkEntryChargeStatus.VERIFIED }) };
       if (entity === AuditLogEntity) return { create: (value) => value, save: async (value) => value };
       throw new Error('Unexpected repository');
     },
