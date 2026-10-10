@@ -98,3 +98,41 @@ test('only a hub owner can confirm receipt', async () => {
     (error) => error && error.getStatus && error.getStatus() === 403,
   );
 });
+
+test('recipient PUDO request selects an active hub and advances the state machine', async () => {
+  const parcel = {
+    id: 'parcel-request-1', recipient_id: 'recipient-1', recipient_phone: dto.recipient_phone,
+    proposed_hub_id: null, current_hub_id: null, delivered_to_hub_at: null,
+    base_post_cost: 18000, status: ParcelStatus.DELIVERY_ATTEMPT, courier_id: 'courier-1',
+  };
+  const hub = { id: 'hub-1', owner_id: 'owner-1', is_active: true, is_temporarily_closed: false };
+  const manager = {
+    getRepository(entity) {
+      if (entity === ParcelEntity) return { findOne: async () => parcel, save: async (value) => value };
+      if (entity === HubEntity) return { findOne: async () => hub };
+      throw new Error('Unexpected repository');
+    },
+  };
+  const service = new ParcelsService(
+    { findOne: async () => parcel },
+    { findOne: async () => hub },
+    { findOne: async () => ({ id: 'recipient-1' }) },
+    { transaction: async (work) => work(manager) },
+    { calculate: () => ({ basePostCost: 18000, elapsedHours: 0, feePercentage: 0.2, calculatedFee: 3600 }) },
+    { create: async () => ({}) },
+  );
+
+  const result = await service.requestPudo('parcel-request-1', 'hub-1', {
+    sub: 'recipient-1', phone: dto.recipient_phone, role: UserRole.RECIPIENT, is_verified: true,
+  });
+  assert.equal(result.proposed_hub_id, 'hub-1');
+  assert.equal(result.status, ParcelStatus.HUB_SELECTED);
+});
+
+test('non-recipient cannot request PUDO for a parcel', async () => {
+  const { service } = makeService();
+  await assert.rejects(
+    service.requestPudo('parcel-1', 'hub-1', { sub: 'courier-1', phone: dto.recipient_phone, role: UserRole.COURIER, is_verified: true }),
+    (error) => error && error.getStatus && error.getStatus() === 403,
+  );
+});
