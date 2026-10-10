@@ -79,3 +79,41 @@ test('active database tariff controls package-size base price and invoice tariff
   assert.equal(priced.tariffVersionId, 'tariff-version-123');
   assert.equal(priced.tariffSnapshot.tariffVersionId, 'tariff-version-123');
 });
+
+
+test('snapshot records the exact percentages and rounding policy from the pinned tariff row', async () => {
+  const customTariff = {
+    id: 'tariff-custom-9',
+    version_key: 'CUSTOM-TARIFF-9',
+    small_base_amount: '18000',
+    medium_base_amount: '25000',
+    large_base_amount: '35000',
+    under_12h_percent: '15.00',
+    from_12_to_24h_percent: '33.00',
+    additional_started_24h_percent: '45.00',
+    expiry_hours: 120,
+    rounding_mode: 'CEIL',
+  };
+  const db = {
+    options: { type: 'postgres' },
+    query: async (sql, params) => {
+      if (/WHERE id =/.test(sql)) {
+        assert.deepEqual(params, ['tariff-custom-9']);
+        return [customTariff];
+      }
+      return [customTariff];
+    },
+  };
+  const result = await new PricingService(db).calculateWithActiveTariff({
+    package_size: 'SMALL',
+    base_post_cost: 18000,
+    tariff_version_id: 'tariff-custom-9',
+    delivered_to_hub_at: deliveredAt,
+  }, atHours(6));
+  assert.equal(result.feePercentage, 0.15);
+  assert.equal(result.tariffSnapshot.under12HoursPercent, 15);
+  assert.equal(result.tariffSnapshot.from12To24HoursPercent, 33);
+  assert.equal(result.tariffSnapshot.additionalStarted24HoursPercent, 45);
+  assert.equal(result.tariffSnapshot.maxBillableHours, 120);
+  assert.equal(result.tariffSnapshot.tariffVersionId, 'tariff-custom-9');
+});
