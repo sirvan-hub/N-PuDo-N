@@ -6,6 +6,7 @@ const { ParcelStatus } = require('../dist/modules/parcels/parcel-state-machine')
 const { ParcelEntity } = require('../dist/database/entities/parcel.entity');
 const { ParcelInvitationEntity, ParcelInvitationStatus } = require('../dist/database/entities/parcel-invitation.entity');
 const { NetworkEntryChargeEntity, NetworkEntryChargeStatus } = require('../dist/database/entities/network-entry-charge.entity');
+const { RevenueAllocationEntity } = require('../dist/database/entities/revenue-allocation.entity');
 const { HubEntity } = require('../dist/database/entities/hub.entity');
 const { InvoiceEntity } = require('../dist/database/entities/invoice.entity');
 const { CustodyTransferEntity, CustodyTransferStatus, CustodyTransferType } = require('../dist/database/entities/custody-transfer.entity');
@@ -146,6 +147,7 @@ test('custody is finalized only when courier and hub evidence both exist', async
       if (entity === ParcelEntity) return { findOne: async () => parcel, save: async (value) => value };
       if (entity === HubEntity) return { findOne: async () => hub };
       if (entity === NetworkEntryChargeEntity) return { findOne: async () => ({ status: NetworkEntryChargeStatus.VERIFIED }) };
+      if (entity === RevenueAllocationEntity) return { findOne: async () => ({ id: 'already-allocated' }) };
       if (entity === AuditLogEntity) return { create: (value) => value, save: async (value) => value };
       throw new Error('Unexpected repository');
     },
