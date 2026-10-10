@@ -26,6 +26,9 @@ export class ParcelEntity {
   base_post_cost: number;
 
   @Column({ type: databaseUuidColumnType, nullable: true })
+  invitation_id?: string;
+
+  @Column({ type: databaseUuidColumnType, nullable: true })
   tariff_version_id?: string;
 
   @Column({ type: databaseDateColumnType, nullable: true })
