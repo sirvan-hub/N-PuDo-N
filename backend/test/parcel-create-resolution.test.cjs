@@ -5,6 +5,7 @@ const { ParcelsService } = require('../dist/modules/parcels/parcels.service');
 const { ParcelStatus } = require('../dist/modules/parcels/parcel-state-machine');
 const { ParcelEntity } = require('../dist/database/entities/parcel.entity');
 const { ParcelInvitationEntity, ParcelInvitationStatus } = require('../dist/database/entities/parcel-invitation.entity');
+const { NetworkEntryChargeEntity, NetworkEntryChargeStatus } = require('../dist/database/entities/network-entry-charge.entity');
 const { HubEntity } = require('../dist/database/entities/hub.entity');
 const { InvoiceEntity } = require('../dist/database/entities/invoice.entity');
 const { CustodyTransferEntity, CustodyTransferStatus, CustodyTransferType } = require('../dist/database/entities/custody-transfer.entity');
@@ -14,6 +15,11 @@ const { UserRole } = require('../dist/common/interfaces/user-payload.interface')
 
 const dto = {
   invitation_id: 'invitation-accepted-1',
+  barcode: 'BC-CI-001',
+  postal_postage_amount: 18000,
+  sender_name: 'CI Sender',
+  sender_phone: '+989120000002',
+  label_image_ref: 'private-label-object-001',
   tracking_code: 'TRACK-CI-001',
   recipient_phone: '+989120000001',
   recipient_name: 'CI Recipient',
@@ -24,9 +30,11 @@ const dto = {
 
 function makeService({ recipient = { id: 'recipient-1', phone: dto.recipient_phone, role: UserRole.RECIPIENT, is_active: true }, hub = { id: 'hub-1', is_active: true, is_temporarily_closed: false } } = {}) {
   const saved = [];
+  const entryCharges = [];
   const manager = { getRepository(entity) {
     if (entity === ParcelEntity) return { create: (value) => ({ ...value, id: value.id || 'parcel-created-1' }), save: async (value) => { saved.push(value); return value; } };
     if (entity === ParcelInvitationEntity) return { findOne: async () => ({ id: dto.invitation_id, courier_id: 'courier-1', recipient_id: 'recipient-1', recipient_phone: dto.recipient_phone, status: ParcelInvitationStatus.ACCEPTED, responded_at: new Date() }), update: async () => ({ affected: 1 }) };
+    if (entity === NetworkEntryChargeEntity) return { create: (value) => ({ ...value }), save: async (value) => { entryCharges.push(value); return value; } };
     if (entity === AuditLogEntity) return { create: (value) => value, save: async (value) => value };
     throw new Error('Unexpected repository in makeService');
   } };
