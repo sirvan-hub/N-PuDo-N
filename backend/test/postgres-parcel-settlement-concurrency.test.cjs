@@ -47,11 +47,12 @@ test('PostgreSQL serializes concurrent payment reconciliation and parcel release
       owner_id: owner.id, name: `Concurrency Hub ${suffix}`, address: 'CI address', city: 'CI',
       operating_hours: {}, qr_code_hash: `qr-${suffix}`,
     }));
+    const parcelId = randomUUID();
     parcel = await dataSource.getRepository(ParcelEntity).save(dataSource.getRepository(ParcelEntity).create({
-      tracking_code: `CC-${suffix}`, recipient_phone: recipient.phone, recipient_name: recipient.full_name,
+      id: parcelId, tracking_code: `CC-${suffix}`, recipient_phone: recipient.phone, recipient_name: recipient.full_name,
       recipient_address: 'CI address', package_size: 'SMALL', base_post_cost: 18000,
       recipient_id: recipient.id, courier_id: courier.id, proposed_hub_id: null, current_hub_id: null,
-      label_image_ref: `pudo-evidence://parcels/temporary/label_image/ci-${suffix}`,
+      label_image_ref: `pudo-evidence://parcels/${parcelId}/label_image/ci-${suffix}`,
       status: ParcelStatus.DELIVERY_ATTEMPT, delivered_to_hub_at: null,
     }));
     entryCharge = await dataSource.getRepository(NetworkEntryChargeEntity).save(dataSource.getRepository(NetworkEntryChargeEntity).create({
