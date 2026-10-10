@@ -4,6 +4,7 @@ import { DataSource, Repository } from 'typeorm';
 import { createHash, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 import { ParcelEntity } from '../../database/entities/parcel.entity';
 import { ParcelInvitationEntity, ParcelInvitationStatus } from '../../database/entities/parcel-invitation.entity';
+import { NetworkEntryChargeEntity, NetworkEntryChargeStatus } from '../../database/entities/network-entry-charge.entity';
 import { AuditLogEntity } from '../../database/entities/audit-log.entity';
 import { NotificationEntity } from '../../database/entities/notification.entity';
 import { HubEntity } from '../../database/entities/hub.entity';
@@ -122,12 +123,24 @@ export class ParcelsService {
     const recipient = await this.users.findOne({ where: { phone: dto.recipient_phone } });
     if (!recipient) throw new BadRequestException('Parcel recipient must have a registered user account');
 
+    if (!dto.invitation_id) throw new BadRequestException('An accepted recipient invitation is required before parcel registration');
+    if (!Number.isSafeInteger(dto.postal_postage_amount) || dto.postal_postage_amount < 0) {
+      throw new BadRequestException('Actual postal postage amount from the label is required');
+    }
+    if (typeof dto.barcode !== 'string' || !dto.barcode.trim() ||
+        typeof dto.sender_name !== 'string' || !dto.sender_name.trim() ||
+        typeof dto.sender_phone !== 'string' || !dto.sender_phone.trim()) {
+      throw new BadRequestException('Postal barcode and sender details are required');
+    }
+    if (typeof dto.label_image_ref !== 'string' || dto.label_image_ref.length < 8 ||
+        dto.label_image_ref.length > 512 || /^https?:\/\//i.test(dto.label_image_ref) || dto.label_image_ref.includes('..')) {
+      throw new BadRequestException('A private label-photo storage reference is required; public URLs are not accepted');
+    }
+
     const proposedHub = await this.hubs.findOne({ where: { id: dto.proposed_hub_id } });
     if (!proposedHub || !proposedHub.is_active || proposedHub.is_temporarily_closed) {
       throw new BadRequestException('Proposed hub does not exist or is not accepting parcels');
     }
-
-    if (!dto.invitation_id) throw new BadRequestException('An accepted recipient invitation is required before parcel registration');
 
     const packageSize = dto.package_size || 'MEDIUM';
     const basePrice = await this.pricingService.resolveBaseCost(packageSize, new Date());
@@ -162,23 +175,57 @@ export class ParcelsService {
           { status: ParcelInvitationStatus.USED, responded_at: invitation.responded_at || new Date(), parcel_id: parcel.id },
         );
         if (!consumed.affected) throw new ConflictException('Invitation has already been used for another parcel');
+
+        const configuredEntryFeePercent = Number(process.env.PUDO_ENTRY_FEE_PERCENT ?? 30);
+        if (!Number.isFinite(configuredEntryFeePercent) || configuredEntryFeePercent < 30 || configuredEntryFeePercent > 40) {
+          throw new ConflictException('PUDO_ENTRY_FEE_PERCENT must be configured between 30 and 40');
+        }
+        const entryFeeAmount = Math.ceil(dto.postal_postage_amount * configuredEntryFeePercent / 100);
+        if (!Number.isSafeInteger(entryFeeAmount)) throw new BadRequestException('Calculated network-entry fee is outside the supported range');
+        const entryCharges = manager.getRepository(NetworkEntryChargeEntity);
+        const entryCharge = await entryCharges.save(entryCharges.create({
+          parcel_id: parcel.id,
+          postal_postage_amount: dto.postal_postage_amount,
+          fee_percent: configuredEntryFeePercent,
+          amount: entryFeeAmount,
+          status: NetworkEntryChargeStatus.PENDING_RECEIPT,
+          tariff_snapshot: {
+            snapshotVersion: 1,
+            chargeType: 'NETWORK_ENTRY',
+            basis: 'ACTUAL_POSTAL_POSTAGE_AMOUNT',
+            postalPostageAmount: dto.postal_postage_amount,
+            feePercent: configuredEntryFeePercent,
+            amount: entryFeeAmount,
+            currencyUnit: 'TOMAN',
+            rounding: 'CEIL',
+            capturedAt: new Date().toISOString(),
+          },
+        }));
+        await manager.getRepository(NotificationEntity).save(manager.getRepository(NotificationEntity).create({
+          user_id: recipient.id,
+          category: 'NETWORK_ENTRY_PAYMENT_REQUIRED',
+          title: 'پرداخت هزینه ورود مرسوله به شبکه Pudo-N',
+          body: `مبلغ کرایه پستی ثبت‌شده ${dto.postal_postage_amount} تومان است. هزینه ورود به شبکه Pudo-N برابر ${entryFeeAmount} تومان است. رسید را در پنل خود ثبت کنید؛ این مبلغ جدا از کرایه پست است.`,
+          reference_type: 'network_entry_charge',
+          reference_id: entryCharge.id,
+        }));
         await manager.getRepository(AuditLogEntity).save(manager.getRepository(AuditLogEntity).create({
           actor_id: courierId,
           actor_role: UserRole.COURIER,
           entity_type: 'parcel',
           entity_id: parcel.id,
-          action: 'PARCEL_CREATED_TARIFF_PINNED',
+          action: 'PARCEL_REGISTERED_ENTRY_CHARGE_CREATED',
           old_state: null,
           new_state: {
             status: parcel.status,
             tariffVersionId: basePrice.tariffVersionId,
             tariffKey: basePrice.tariffKey,
             packageSize,
-            basePostCost: basePrice.basePostCost,
+            basePostCost: basePrice.basePostCost,\n            networkEntryChargeId: entryCharge.id,\n            networkEntryFee: entryFeeAmount,
           },
           transaction_id: parcel.id,
           correlation_id: `parcel-create:${parcel.id}`,
-          metadata: { source: 'parcel-creation', snapshotPolicy: 'tariff-version-pinned' },
+          metadata: { source: 'parcel-creation', snapshotPolicy: 'tariff-version-pinned', networkEntryFeePolicy: 'actual-postal-postage-times-configured-rate' },
         }));
         return parcel;
       });
