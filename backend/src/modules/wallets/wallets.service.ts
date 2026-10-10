@@ -180,7 +180,7 @@ export class WalletsService {
   /** Move earnings into the pending bucket; intended for trusted settlement orchestration only. */
   async creditPending(userId: string, amount: number, idempotencyKey: string) {
     return this.applyMutation(userId, amount, idempotencyKey, 'wallet.pending-credit',
-      WalletTransactionType.PENDING_CREDIT, null, WalletBucket.PENDING, 'Pending wallet credit');
+      WalletTransactionType.PENDING_CREDIT, null, WalletBucket.PENDING, 'Pending wallet credit', true);
   }
 
   /** Release matured pending funds to the available bucket. */
@@ -216,6 +216,7 @@ export class WalletsService {
     source: WalletBucket | null,
     target: WalletBucket | null,
     description: string,
+    increaseTotalEarned = false,
   ) {
     if (!userId) throw new BadRequestException('userId is required');
     if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 2_147_483_647) {
@@ -280,6 +281,13 @@ export class WalletsService {
 
       for (const [bucket, next] of nextByBucket) {
         wallet[fieldByBucket[bucket]] = next;
+      }
+      if (increaseTotalEarned) {
+        const nextTotalEarned = Number(wallet.total_earned ?? 0) + amount;
+        if (!Number.isSafeInteger(nextTotalEarned) || nextTotalEarned > 2_147_483_647) {
+          throw new BadRequestException('Total earned exceeds the supported range');
+        }
+        wallet.total_earned = nextTotalEarned;
       }
       await walletRepo.save(wallet);
 
