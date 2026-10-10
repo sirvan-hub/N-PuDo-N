@@ -35,4 +35,4 @@ jobs:
       - name: Build backend
         run: npm run build
       - name: Test deployment configuration
-        run: node --test test/*.test.cjs
+        run: npm test
