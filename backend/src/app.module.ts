@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { createDatabaseOptions } from './database/database-options';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { ParcelsModule } from './modules/parcels/parcels.module';
@@ -12,13 +13,7 @@ import { WalletsModule } from './modules/wallets/wallets.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    TypeOrmModule.forRoot({
-      type: 'sqlite',
-      database: 'dev.db',
-      entities: [__dirname + '/**/*.entity{.ts,.js}'],
-      synchronize: true,
-      logging: false,
-    }),
+    TypeOrmModule.forRoot(createDatabaseOptions()),
     AuthModule,
     UsersModule,
     ParcelsModule,
@@ -28,4 +23,4 @@ import { WalletsModule } from './modules/wallets/wallets.module';
     WalletsModule,
   ],
 })
-export class AppModule {}
+export class AppModule {};
