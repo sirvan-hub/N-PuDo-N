@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { InvoicesService } = require('../dist/modules/invoices/invoices.service');
 
-test('invoice snapshots the current 30% hub share without assuming a platform split', async () => {
+test('invoice snapshots balanced 30/30/40 allocation with integer rounding, async () => {
   let saved;
   const repo = {
     create: (value) => ({ ...value }),
@@ -14,23 +14,23 @@ test('invoice snapshots the current 30% hub share without assuming a platform sp
     { basePostCost: 18000, elapsedHours: 10, feePercentage: 0.2, calculatedFee: 3601 },
   );
   assert.equal(result.total_amount, 3601);
+  assert.equal(result.courier_share, 1080);
   assert.equal(result.hub_owner_share, 1080);
-  assert.equal(result.platform_fee, 0);
+  assert.equal(result.platform_fee, 1441);
   assert.equal(result.hub_share_percent, 30);
-  assert.deepEqual(result.hub_share_snapshot, {
-    snapshotVersion: 1,
-    rule: 'fixed-percentage-of-invoice-total',
-    percentage: 30,
-    basisAmount: 3601,
-    hubOwnerShare: 1080,
-    currencyUnit: 'TOMAN',
-    capturedAt: result.hub_share_snapshot.capturedAt,
+  assert.equal(result.revenue_allocation_snapshot.rule, 'fixed-30-30-40-of-pudo-service-charge');
+  assert.deepEqual(result.revenue_allocation_snapshot.shares, {
+    courier: { percent: 30, amount: 1080 },
+    hub: { percent: 30, amount: 1080 },
+    platform: { percent: 40, amount: 1441 },
   });
+  assert.equal(result.revenue_allocation_snapshot.sumCheck, result.total_amount);
+  assert.equal(saved.courier_share, 1080);
   assert.equal(saved.hub_owner_share, 1080);
-  assert.equal(saved.platform_fee, 0);
+  assert.equal(saved.platform_fee, 1441);
 });
 
-test('invoice uses the current configurable rate and keeps a per-invoice snapshot', async () => {
+test('invoice allocation does not inherit legacy configurable hub share and snapshots the approved split', async () => {
   let saved;
   const invoiceRepo = {
     create: (value) => ({ ...value }),
@@ -44,10 +44,12 @@ test('invoice uses the current configurable rate and keeps a per-invoice snapsho
     { id: 'parcel-3', recipient_id: 'recipient-3', current_hub_id: 'hub-3' },
     { basePostCost: 25000, elapsedHours: 13, feePercentage: 0.4, calculatedFee: 10000 },
   );
-  assert.equal(saved.hub_share_percent, 42.5);
-  assert.equal(saved.hub_owner_share, 4250);
-  assert.equal(saved.hub_share_snapshot.percentage, 42.5);
-  assert.equal(saved.hub_share_snapshot.basisAmount, 10000);
+  assert.equal(saved.hub_share_percent, 30);
+  assert.equal(saved.courier_share, 3000);
+  assert.equal(saved.hub_owner_share, 3000);
+  assert.equal(saved.platform_fee, 4000);
+  assert.equal(saved.revenue_allocation_snapshot.shares.platform.amount, 4000);
+  assert.equal(saved.revenue_allocation_snapshot.sumCheck, 10000);
 });
 
 test('invoice creation refuses unresolved recipient or hub identity', async () => {
