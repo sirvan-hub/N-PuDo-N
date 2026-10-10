@@ -189,6 +189,7 @@ test('recipient PUDO request selects an active hub and advances the state machin
       if (entity === HubEntity) return { findOne: async () => hub };
       if (entity === NetworkEntryChargeEntity) return { findOne: async () => ({ status: NetworkEntryChargeStatus.VERIFIED }) };
       if (entity === RevenueAllocationEntity) return { findOne: async () => ({ id: 'already-allocated' }) };
+      if (entity === NotificationEntity) return { create: (value) => value, save: async (value) => value };
       if (entity === AuditLogEntity) return { create: (value) => value, save: async (value) => value };
       throw new Error('Unexpected repository');
     },
