@@ -60,6 +60,6 @@ jobs:
       - name: Apply versioned migrations to disposable PostgreSQL
         run: npm run migration:run
       - name: Database, financial, and authorization contract tests
-        run: node --test test/wallet-api-access.test.cjs && node --test test/invoices-service-contract.test.cjs && node --test test/parcel-create-resolution.test.cjs && node --test test/hub-share-payout-workflow.test.cjs && node --test test/settlements-api-access.test.cjs && node --test test/postgres-domain-contracts.test.cjs && node --test test/postgres-parcel-settlement-concurrency.test.cjs && node --test test/database-options.test.cjs test/database-column-types.test.cjs test/postgres-smoke.cjs test/pricing-service.test.cjs test/postgres-migration-rehearsal.test.cjs test/parcel-state-machine.test.cjs
+        run: node --test test/wallet-api-access.test.cjs && node --test test/invoices-service-contract.test.cjs && node --test test/parcel-create-resolution.test.cjs && node --test test/network-entry-charge.test.cjs && node --test test/hub-share-payout-workflow.test.cjs && node --test test/settlements-api-access.test.cjs && node --test test/postgres-domain-contracts.test.cjs && node --test test/postgres-parcel-settlement-concurrency.test.cjs && node --test test/database-options.test.cjs test/database-column-types.test.cjs test/postgres-smoke.cjs test/pricing-service.test.cjs test/postgres-migration-rehearsal.test.cjs test/parcel-state-machine.test.cjs
       - name: Verify latest migration can be reverted
         run: npm run migration:revert
