@@ -216,7 +216,7 @@ export class ParcelsService {
         throw new ConflictException('Invoice must be PAID before physical parcel release');
       }
 
-      let nextStatus = parcel.status;
+      let nextStatus: ParcelStatus = parcel.status;
       for (const status of [ParcelStatus.CUSTOMER_COLLECTION, ParcelStatus.COLLECTED]) {
         if (!canTransitionParcel(nextStatus, status)) {
           throw new ConflictException(`Invalid release transition from ${nextStatus} to ${status}`);
