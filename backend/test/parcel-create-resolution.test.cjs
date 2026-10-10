@@ -273,6 +273,8 @@ test('hub owner cannot release before payment and can release after invoice is p
       if (entity === require('../dist/database/entities/user.entity').UserEntity) return { findOne: async () => null };
       throw new Error('Unexpected repository');
     },
+    connection: { options: { type: 'sqlite' } },
+    query: async () => [],
   };
   const service = new ParcelsService(
     { findOne: async () => parcel },
