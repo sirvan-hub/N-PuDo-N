@@ -18,10 +18,10 @@ export class InvoiceEntity {
   @Column({ type: 'integer' }) calculated_fee: number;
   @Column({ type: 'integer' }) total_amount: number;
   @Column({ type: 'varchar', length: 20, default: PaymentStatus.PENDING }) status: PaymentStatus;
-  @Column({ type: 'integer' }) courier_share: number;
+  @Column({ type: 'integer', default: 0 }) courier_share: number;
   @Column({ type: 'integer' }) hub_owner_share: number;
   @Column({ type: 'integer' }) platform_fee: number;
-  @Column({ type: databaseJsonColumnType }) revenue_allocation_snapshot: Record<string, unknown>;
+  @Column({ type: databaseJsonColumnType, default: '{}' }) revenue_allocation_snapshot: Record<string, unknown>;
   @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true }) hub_share_percent: number;
   @Column({ type: databaseJsonColumnType }) tariff_snapshot: Record<string, unknown>;
   @Column({ type: databaseUuidColumnType, nullable: true }) tariff_version_id?: string;
