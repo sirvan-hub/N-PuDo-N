@@ -30,10 +30,9 @@ The invoice service now refuses to create an invoice unless both recipient ident
 ## Blocking domain/schema discrepancy
 The source files do not agree on the parcel status vocabulary:
 - the active canonical state-machine source has 14 values, including both `PENDING_APPROVAL` and `DELIVERED`;
-- the SQL baseline's CHECK constraint has 13 values and omits `DELIVERED`;
-- the master blueprint also uses a conceptual lifecycle vocabulary that is not identical to either list.
+- the SQL baseline previously had 13 values and omitted `DELIVERED`.
 
-The active entity and initial status now use the state-machine enum and `DELIVERY_ATTEMPT` default. The migration intentionally does not add a database CHECK constraint for statuses until the single canonical vocabulary is confirmed. Transition rules are unit-tested but are not yet wired into a complete parcel-status update endpoint.
+The user selected option A: retain the active canonical 14-value enum. The baseline SQL and PostgreSQL migration now include all 14 values, including `DELIVERED`, in the database CHECK constraint. Tests assert the exact enum vocabulary and exercise all 14 values against the migrated PostgreSQL schema; an unknown status must be rejected. Transition rules are unit-tested but are not yet wired into a complete parcel-status update endpoint.
 
 ## Financial decisions not inferred
 The master blueprint says the revenue split requires validation. The current invoice service still contains a 70/30 split assumption; it must not be treated as an approved commercial policy. VAT, settlement/payout ledger semantics, and idempotency keys remain blocking items for the full financial schema.
