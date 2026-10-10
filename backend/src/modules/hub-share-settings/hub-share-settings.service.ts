@@ -44,6 +44,10 @@ export class HubShareSettingsService {
     }
 
     return this.dataSource.transaction(async (manager) => {
+      // Serialize percentage updates, including the first insert when the singleton row does not exist yet.
+      if (manager.connection.options.type === 'postgres') {
+        await manager.query('SELECT pg_advisory_xact_lock(741902, 1)');
+      }
       const settings = manager.getRepository(HubShareSettingEntity);
       const history = manager.getRepository(HubShareRateHistoryEntity);
       let setting = await settings.findOne({ where: { id: 'default' } });
