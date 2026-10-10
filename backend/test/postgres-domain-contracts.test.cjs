@@ -89,7 +89,7 @@ test('domain financial contracts enforce invoice states, idempotency, and custod
       [`user:${user.id}`, `create-${suffix}`, 'c'.repeat(64)],
     );
 
-    const wallet = (await client.query(
+    const walletIdem = (await client.query(\n      \`INSERT INTO idempotency_records\n        (actor_scope, operation_type, idempotency_key, request_hash, state, response_status, response_body, completed_at)\n       VALUES ($1, 'wallet.credit', $2, $3, 'COMPLETED', 200, '{}'::jsonb, now())\n       RETURNING id\`,\n      [\`user:${user.id}\`, \`credit-${suffix}\`, 'd'.repeat(64)],\n    )).rows[0];\n\n    const wallet = (await client.query(
       'INSERT INTO wallets (user_id, balance, pending_balance, total_earned) VALUES ($1, 5000, 2500, 9000) RETURNING id',
       [user.id],
     )).rows[0];
@@ -97,7 +97,7 @@ test('domain financial contracts enforce invoice states, idempotency, and custod
       `INSERT INTO wallet_transactions
         (wallet_id, actor_id, idempotency_record_id, transaction_type, bucket, amount, bucket_balance_after)
        VALUES ($1, $2, $3, 'EARNING_CREDIT', 'AVAILABLE', 5000, 5000)`,
-      [wallet.id, user.id, idem.id],
+      [wallet.id, user.id, walletIdem.id],
     );
     await assert.rejects(
       client.query(
