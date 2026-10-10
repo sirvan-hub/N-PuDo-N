@@ -13,6 +13,21 @@ export class ParcelEntity {
   @Column()
   recipient_phone: string;
 
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  barcode?: string;
+
+  @Column({ type: 'integer', nullable: true })
+  postal_postage_amount?: number;
+
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  sender_name?: string;
+
+  @Column({ type: 'varchar', length: 15, nullable: true })
+  sender_phone?: string;
+
+  @Column({ type: 'varchar', length: 512, nullable: true })
+  label_image_ref?: string;
+
   @Column()
   recipient_name: string;
 
