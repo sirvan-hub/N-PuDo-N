@@ -1,5 +1,5 @@
 import { Controller, Post, Get, Body, Param, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
-import { IsOptional, IsString, Matches, IsBoolean } from 'class-validator';
+import { IsOptional, IsString, Matches, IsBoolean, Length } from 'class-validator';
 import { ApiTags, ApiOperation, ApiBody, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { ParcelsService } from './parcels.service';
 import { CreateParcelDto } from './dto/create-parcel.dto';
@@ -18,6 +18,13 @@ class CreateParcelInvitationDto {
 class RespondParcelInvitationDto {
   @IsBoolean()
   accepted: boolean;
+}
+
+class CustodyEvidenceDto {
+  @IsString()
+  @Length(8, 512)
+  @Matches(/^(?!https?:\\/\\/)(?!.*\\.\\.).+$/i)
+  evidence_ref: string;
 }
 
 class ConfirmCustomerReleaseDto {
@@ -82,13 +89,21 @@ export class ParcelsController {
     return this.parcelsService.requestCustomerCollection(id, user);
   }
 
+  @Post(':id/confirm-courier-handover')
+  @Roles(UserRole.COURIER)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Submit courier handover photo evidence; custody waits for the hub owner confirmation' })
+  async confirmCourierHandover(@Param('id') id: string, @Body() body: CustodyEvidenceDto, @CurrentUser() user: UserPayload) {
+    return this.parcelsService.confirmCourierHandover(id, body.evidence_ref, user);
+  }
+
   @Post(':id/confirm-hub-receipt')
   @Roles(UserRole.HUB_OWNER)
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Confirm physical receipt of a parcel at the assigned hub; invoice is deferred until the recipient requests collection' })
-  @ApiResponse({ status: 200, description: 'Hub custody recorded; invoice not yet issued' })
-  async confirmHubReceipt(@Param('id') id: string, @CurrentUser() user: UserPayload) {
-    return this.parcelsService.confirmHubReceipt(id, user);
+  @ApiOperation({ summary: 'Submit hub receipt photo evidence; custody is finalized only after courier and hub confirmations' })
+  @ApiResponse({ status: 200, description: 'Evidence recorded; custody is confirmed only after both parties submit evidence' })
+  async confirmHubReceipt(@Param('id') id: string, @Body() body: CustodyEvidenceDto, @CurrentUser() user: UserPayload) {
+    return this.parcelsService.confirmHubReceipt(id, user, body.evidence_ref);
   }
 
   @Post(':id/request-delivery-code')
