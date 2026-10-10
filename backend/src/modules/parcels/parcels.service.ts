@@ -235,6 +235,108 @@ export class ParcelsService {
     throw new BadRequestException('Transactional persistence is required for consent-gated parcel registration');
   }
 
+  async submitNetworkEntryReceipt(parcelId: string, evidenceRef: string, actor: UserPayload) {
+    if (actor.role !== UserRole.RECIPIENT) throw new ForbiddenException('Only the recipient can submit the network-entry receipt');
+    if (typeof evidenceRef !== 'string' || evidenceRef.length < 8 || evidenceRef.length > 512 ||
+        /^https?:\/\//i.test(evidenceRef) || evidenceRef.includes('..')) {
+      throw new BadRequestException('A private receipt storage reference is required; public URLs are not accepted');
+    }
+
+    return this.dataSource.transaction(async (manager) => {
+      const parcel = await this.findParcelForUpdate(manager, parcelId);
+      if (!parcel) throw new NotFoundException('Parcel not found');
+      if (parcel.recipient_id !== actor.sub && parcel.recipient_phone !== actor.phone) {
+        throw new ForbiddenException('Only the registered recipient can submit this receipt');
+      }
+      const charges = manager.getRepository(NetworkEntryChargeEntity);
+      const charge = await charges.findOne({ where: { parcel_id: parcel.id } });
+      if (!charge) throw new NotFoundException('Network-entry charge not found');
+      if (charge.status === NetworkEntryChargeStatus.VERIFIED) {
+        throw new ConflictException('Network-entry payment is already verified');
+      }
+      if (charge.status === NetworkEntryChargeStatus.RECEIPT_SUBMITTED) {
+        if (charge.receipt_evidence_ref === evidenceRef) return { charge, alreadySubmitted: true };
+        throw new ConflictException('A receipt is already awaiting review');
+      }
+      charge.receipt_evidence_ref = evidenceRef;
+      charge.status = NetworkEntryChargeStatus.RECEIPT_SUBMITTED;
+      charge.provider_reference = null;
+      charge.verified_by = null;
+      charge.verified_at = null;
+      const saved = await charges.save(charge);
+      await manager.getRepository(AuditLogEntity).save(manager.getRepository(AuditLogEntity).create({
+        actor_id: actor.sub,
+        actor_role: actor.role,
+        entity_type: 'network_entry_charge',
+        entity_id: charge.id,
+        action: 'NETWORK_ENTRY_RECEIPT_SUBMITTED',
+        old_state: { status: NetworkEntryChargeStatus.PENDING_RECEIPT },
+        new_state: { status: NetworkEntryChargeStatus.RECEIPT_SUBMITTED, receiptEvidenceRef: evidenceRef },
+        transaction_id: charge.id,
+        correlation_id: `network-entry-charge:${charge.id}`,
+        metadata: { parcelId: parcel.id, amount: charge.amount, currencyUnit: 'TOMAN' },
+      }));
+      return { charge: saved, alreadySubmitted: false };
+    });
+  }
+
+  async verifyNetworkEntryPayment(chargeId: string, providerReference: string, actor: UserPayload) {
+    if (![UserRole.ADMIN, UserRole.SUPER_ADMIN].includes(actor.role)) {
+      throw new ForbiddenException('Only an administrator can reconcile an externally verified entry-fee payment');
+    }
+    if (typeof providerReference !== 'string' || !providerReference.trim() || providerReference.length > 160) {
+      throw new BadRequestException('An independently verified bank/provider reference is required');
+    }
+
+    return this.dataSource.transaction(async (manager) => {
+      const charges = manager.getRepository(NetworkEntryChargeEntity);
+      const charge = await charges.findOne({ where: { id: chargeId } });
+      if (!charge) throw new NotFoundException('Network-entry charge not found');
+      if (charge.status === NetworkEntryChargeStatus.VERIFIED) {
+        if (charge.provider_reference === providerReference.trim()) return { charge, alreadyVerified: true };
+        throw new ConflictException('Charge was verified with a different provider reference');
+      }
+      if (charge.status !== NetworkEntryChargeStatus.RECEIPT_SUBMITTED || !charge.receipt_evidence_ref) {
+        throw new ConflictException('A recipient receipt must be submitted before payment reconciliation');
+      }
+      const duplicate = await charges.findOne({ where: { provider_reference: providerReference.trim() } });
+      if (duplicate && duplicate.id !== charge.id) throw new ConflictException('Provider reference has already been used');
+
+      const parcel = await manager.getRepository(ParcelEntity).findOne({ where: { id: charge.parcel_id } });
+      if (!parcel) throw new NotFoundException('Linked parcel not found');
+      const now = new Date();
+      charge.status = NetworkEntryChargeStatus.VERIFIED;
+      charge.provider_reference = providerReference.trim();
+      charge.verified_by = actor.sub;
+      charge.verified_at = now;
+      const saved = await charges.save(charge);
+      const notifications = manager.getRepository(NotificationEntity);
+      for (const userId of [parcel.recipient_id, parcel.courier_id].filter((value): value is string => Boolean(value))) {
+        await notifications.save(notifications.create({
+          user_id: userId,
+          category: 'NETWORK_ENTRY_PAYMENT_VERIFIED',
+          title: 'پرداخت هزینه ورود به شبکه تأیید شد',
+          body: 'پرداخت هزینه ورود مرسوله به شبکه Pudo-N ثبت شد. اکنون گیرنده می‌تواند هاب موردنظر را انتخاب کند.',
+          reference_type: 'network_entry_charge',
+          reference_id: charge.id,
+        }));
+      }
+      await manager.getRepository(AuditLogEntity).save(manager.getRepository(AuditLogEntity).create({
+        actor_id: actor.sub,
+        actor_role: actor.role,
+        entity_type: 'network_entry_charge',
+        entity_id: charge.id,
+        action: 'NETWORK_ENTRY_PAYMENT_RECONCILED',
+        old_state: { status: NetworkEntryChargeStatus.RECEIPT_SUBMITTED },
+        new_state: { status: NetworkEntryChargeStatus.VERIFIED, verifiedAt: now.toISOString(), providerReference: providerReference.trim() },
+        transaction_id: charge.id,
+        correlation_id: `network-entry-charge:${charge.id}`,
+        metadata: { parcelId: parcel.id, amount: charge.amount, currencyUnit: 'TOMAN', verificationMode: 'ADMIN_RECONCILIATION' },
+      }));
+      return { charge: saved, alreadyVerified: false, hubSelectionEnabled: true };
+    });
+  }
+
   async requestPudo(parcelId: string, hubId: string, actor: UserPayload) {
     if (actor.role !== UserRole.RECIPIENT) {
       throw new ForbiddenException('Only the parcel recipient can request PUDO');
@@ -248,6 +350,11 @@ export class ParcelsService {
       if (!parcel) throw new NotFoundException('Parcel not found');
       if (parcel.recipient_id !== actor.sub && parcel.recipient_phone !== actor.phone) {
         throw new ForbiddenException('Only the parcel recipient can request PUDO for this parcel');
+      }
+
+      const entryCharge = await manager.getRepository(NetworkEntryChargeEntity).findOne({ where: { parcel_id: parcel.id } });
+      if (!entryCharge || entryCharge.status !== NetworkEntryChargeStatus.VERIFIED) {
+        throw new ConflictException('Network-entry payment must be verified before selecting a hub');
       }
 
       const hub = await hubs.findOne({ where: { id: hubId } });
