@@ -26,18 +26,21 @@ export class ParcelEntity {
   @Column({ nullable: true })  // ← مهم: برای تست
   courier_id: string;
 
-  @Column({ default: 'PENDING_APPROVAL' })
+  @Column({ type: 'varchar', length: 30, default: 'DELIVERY_ATTEMPT' })
   status: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'decimal', precision: 10, scale: 3, nullable: true })
   weight_kg?: number;
 
   @Column({ nullable: true })
   description?: string;
 
-  @CreateDateColumn({ type: 'datetime' })
+  @Column({ type: 'timestamptz', nullable: true })
+  delivered_to_hub_at?: Date;
+
+  @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
 
-  @UpdateDateColumn({ type: 'datetime' })
+  @UpdateDateColumn({ type: 'timestamptz' })
   updated_at: Date;
 }
