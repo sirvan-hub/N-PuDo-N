@@ -312,7 +312,7 @@ export class WalletsService {
         amount,
         balance: wallet.balance,
         pendingBalance: wallet.pending_balance,
-        blockedBalance: wallet.blocked_balance ?? 0,
+        blockedBalance: Number(wallet.blocked_balance ?? 0),
         totalEarned: wallet.total_earned,
         ledgerTransactionIds: ledgerEntries.map((entry) => entry.id),
       };
