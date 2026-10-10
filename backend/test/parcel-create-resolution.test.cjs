@@ -173,7 +173,17 @@ test('recipient collection request issues invoice using elapsed custody tariff a
         feePercentage: 0.4, calculatedFee: 7200,
         tariffSnapshot: { tariffKey: 'PUDO-N-TARIFF-168H-V1', appliedPercentage: 40 },
       };
-    } },
+    },
+      calculateWithActiveTariff: async (value, now) => {
+        pricingCalledAt = now;
+        assert.equal(value.delivered_to_hub_at, deliveredAt);
+        return {
+          basePostCost: 18000, elapsedHours: 13, actualElapsedHours: 13,
+          feePercentage: 0.4, calculatedFee: 7200, isExpired: false,
+          tariffVersionId: 'tariff-v1',
+          tariffSnapshot: { tariffKey: 'PUDO-N-TARIFF-168H-V1', tariffVersionId: 'tariff-v1', appliedPercentage: 40 },
+        };
+      } },
     { create: async (value, pricing) => {
       invoice = { parcel_id: value.id, hub_id: value.current_hub_id, amount: pricing.calculatedFee, tariff_snapshot: pricing.tariffSnapshot };
       return invoice;
