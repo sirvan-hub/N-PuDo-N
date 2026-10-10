@@ -362,7 +362,7 @@ test('recipient delivery code is atomically stored in the private in-app inbox w
   assert.equal(saved.audits.length, 1);
   assert.equal(saved.audits[0].action, 'DELIVERY_CODE_NOTIFIED_IN_APP');
   assert.equal(saved.audits[0].metadata.channel, 'IN_APP');
-  const match = saved.notifications[0].body.match(/ برابر (\\d{6}) است/);
+  const match = saved.notifications[0].body.match(/ برابر (\d{6}) است/);
   assert.ok(match, 'in-app notification should contain a six-digit code');
   const transfer = saved.transfers[0];
   assert.equal(transfer.code_hash, createHash('sha256').update(`${transfer.code_salt}:${match[1]}`).digest('hex'));
