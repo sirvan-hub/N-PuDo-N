@@ -207,9 +207,43 @@ export class ParcelsService {
         parcel.expired_at = parcel.expired_at ?? new Date();
         parcel.updated_at = new Date();
         await parcels.save(parcel);
+        await manager.getRepository(AuditLogEntity).save(manager.getRepository(AuditLogEntity).create({
+          actor_id: actor.sub,
+          actor_role: actor.role,
+          entity_type: 'parcel',
+          entity_id: parcel.id,
+          action: 'PARCEL_STORAGE_EXPIRED',
+          old_state: { status: ParcelStatus.READY_FOR_CUSTOMER },
+          new_state: { status: ParcelStatus.STORED_AT_HUB, expiredAt: parcel.expired_at.toISOString() },
+          transaction_id: parcel.id,
+          correlation_id: `parcel-expired:${parcel.id}`,
+          metadata: { reason: 'STORAGE_LIMIT_REACHED', tariffVersionId: parcel.tariff_version_id ?? null },
+        }));
         return { parcel, invoice: null, expired: true, reason: 'STORAGE_LIMIT_REACHED' };
       }
       const invoice = await this.invoicesService.create(parcel, pricing, manager);
+      await manager.getRepository(AuditLogEntity).save(manager.getRepository(AuditLogEntity).create({
+        actor_id: actor.sub,
+        actor_role: actor.role,
+        entity_type: 'invoice',
+        entity_id: invoice.id,
+        action: 'INVOICE_TARIFF_SNAPSHOT_CREATED',
+        old_state: null,
+        new_state: {
+          invoiceStatus: invoice.status,
+          tariffVersionId: invoice.tariff_version_id ?? pricing.tariffVersionId ?? null,
+          tariffSnapshot: invoice.tariff_snapshot ?? pricing.tariffSnapshot,
+          hubShareSnapshot: invoice.hub_share_snapshot ?? null,
+          basePostCost: invoice.base_post_cost,
+          elapsedHours: invoice.elapsed_hours,
+          feePercentage: invoice.fee_percentage,
+          calculatedFee: invoice.calculated_fee,
+          totalAmount: invoice.total_amount,
+        },
+        transaction_id: invoice.id,
+        correlation_id: `tariff-snapshot:${invoice.id}`,
+        metadata: { parcelId: parcel.id, snapshotPolicy: 'immutable-invoice-snapshot' },
+      }));
       return { parcel, invoice, alreadyIssued: false };
     });
   }
