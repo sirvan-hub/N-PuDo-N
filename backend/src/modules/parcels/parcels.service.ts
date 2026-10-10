@@ -242,62 +242,147 @@ export class ParcelsService {
    * The hub owner confirms physical custody. The parcel row is locked so retries
    * cannot create duplicate invoices or race a second custody confirmation.
    */
-  async confirmHubReceipt(parcelId: string, actor: UserPayload) {
-    if (actor.role !== UserRole.HUB_OWNER) {
-      throw new ForbiddenException('Only the owner of the proposed hub can confirm receipt');
+  async confirmCourierHandover(parcelId: string, evidenceRef: string, actor: UserPayload) {
+    return this.recordCustodyEvidence(parcelId, evidenceRef, actor, 'COURIER');
+  }
+
+  async confirmHubReceipt(parcelId: string, actor: UserPayload, evidenceRef: string) {
+    return this.recordCustodyEvidence(parcelId, evidenceRef, actor, 'HUB');
+  }
+
+  private async recordCustodyEvidence(
+    parcelId: string,
+    evidenceRef: string,
+    actor: UserPayload,
+    party: 'COURIER' | 'HUB',
+  ) {
+    if (party === 'COURIER' && actor.role !== UserRole.COURIER) {
+      throw new ForbiddenException('Only the assigned courier can confirm handover');
+    }
+    if (party === 'HUB' && actor.role !== UserRole.HUB_OWNER) {
+      throw new ForbiddenException('Only the assigned hub owner can confirm receipt');
+    }
+    if (typeof evidenceRef !== 'string' || evidenceRef.length < 8 || evidenceRef.length > 512 ||
+        /^https?:\/\//i.test(evidenceRef) || evidenceRef.includes('..')) {
+      throw new BadRequestException('A private object-storage evidence reference is required; public URLs are not accepted');
     }
 
     return this.dataSource.transaction(async (manager) => {
       const parcels = manager.getRepository(ParcelEntity);
-      const hubs = manager.getRepository(HubEntity);
       const parcel = await this.findParcelForUpdate(manager, parcelId);
       if (!parcel) throw new NotFoundException('Parcel not found');
 
       const hub = parcel.proposed_hub_id
-        ? await hubs.findOne({ where: { id: parcel.proposed_hub_id, owner_id: actor.sub } })
+        ? await manager.getRepository(HubEntity).findOne({ where: { id: parcel.proposed_hub_id } })
         : null;
-      if (!hub) throw new ForbiddenException('Parcel is not assigned to a hub owned by this user');
-
-      if (parcel.current_hub_id === hub.id && parcel.delivered_to_hub_at) {
-        return { parcel, invoice: null, alreadyConfirmed: true, invoiceDeferredUntilCollectionRequest: true };
+      if (!hub) throw new ConflictException('Parcel must have an assigned hub before custody evidence is recorded');
+      if (party === 'COURIER' && parcel.courier_id !== actor.sub) {
+        throw new ForbiddenException('Only the courier assigned to this parcel can confirm handover');
       }
-      if (parcel.current_hub_id || parcel.delivered_to_hub_at) {
-        throw new ConflictException('Parcel custody has already been recorded');
+      if (party === 'HUB' && hub.owner_id !== actor.sub) {
+        throw new ForbiddenException('Only the owner of the assigned hub can confirm receipt');
+      }
+      if (parcel.current_hub_id === hub.id && parcel.delivered_to_hub_at) {
+        return { parcel, custodyConfirmed: true, alreadyConfirmed: true, invoice: null, invoiceDeferredUntilCollectionRequest: true };
       }
       if (![ParcelStatus.HUB_SELECTED, ParcelStatus.HANDOVER_IN_PROGRESS, ParcelStatus.TRANSFERRED_TO_HUB].includes(parcel.status)) {
-        throw new ConflictException('Parcel is not in a state that permits hub receipt confirmation');
+        throw new ConflictException('Parcel is not in a state that permits hub handover evidence');
       }
 
-      let nextStatus: ParcelStatus = parcel.status;
-      for (const status of [ParcelStatus.HANDOVER_IN_PROGRESS, ParcelStatus.TRANSFERRED_TO_HUB, ParcelStatus.STORED_AT_HUB]) {
-        if (nextStatus === status) continue;
-        if (!canTransitionParcel(nextStatus, status)) {
-          throw new ConflictException(`Invalid custody transition from ${nextStatus} to ${status}`);
+      const now = new Date();
+      if (party === 'COURIER') {
+        if (parcel.courier_handover_evidence_ref) {
+          if (parcel.courier_handover_evidence_ref !== evidenceRef) {
+            throw new ConflictException('Courier handover evidence has already been submitted');
+          }
+        } else {
+          parcel.courier_handover_evidence_ref = evidenceRef;
+          parcel.courier_handover_at = now;
         }
-        nextStatus = status;
+      } else {
+        if (parcel.hub_receipt_evidence_ref) {
+          if (parcel.hub_receipt_evidence_ref !== evidenceRef) {
+            throw new ConflictException('Hub receipt evidence has already been submitted');
+          }
+        } else {
+          parcel.hub_receipt_evidence_ref = evidenceRef;
+          parcel.hub_receipt_confirmed_at = now;
+        }
       }
 
-      const receivedAt = new Date();
-      parcel.current_hub_id = hub.id;
-      parcel.delivered_to_hub_at = receivedAt;
-      parcel.status = ParcelStatus.STORED_AT_HUB;
-      parcel.updated_at = receivedAt;
+      const oldStatus = parcel.status;
+      if (parcel.status === ParcelStatus.HUB_SELECTED && canTransitionParcel(parcel.status, ParcelStatus.HANDOVER_IN_PROGRESS)) {
+        parcel.status = ParcelStatus.HANDOVER_IN_PROGRESS;
+      }
+      const bothConfirmed = Boolean(parcel.courier_handover_evidence_ref && parcel.hub_receipt_evidence_ref);
+      if (bothConfirmed && !parcel.current_hub_id) {
+        if (parcel.status === ParcelStatus.HANDOVER_IN_PROGRESS) {
+          if (!canTransitionParcel(parcel.status, ParcelStatus.TRANSFERRED_TO_HUB)) {
+            throw new ConflictException('Invalid transition after dual custody confirmation');
+          }
+          parcel.status = ParcelStatus.TRANSFERRED_TO_HUB;
+        }
+        if (parcel.status === ParcelStatus.TRANSFERRED_TO_HUB) {
+          if (!canTransitionParcel(parcel.status, ParcelStatus.STORED_AT_HUB)) {
+            throw new ConflictException('Invalid transition into hub storage');
+          }
+          parcel.status = ParcelStatus.STORED_AT_HUB;
+        }
+        parcel.current_hub_id = hub.id;
+        parcel.delivered_to_hub_at = now;
+      }
+      parcel.updated_at = now;
       const savedParcel = await parcels.save(parcel);
+
       await manager.getRepository(AuditLogEntity).save(manager.getRepository(AuditLogEntity).create({
         actor_id: actor.sub,
         actor_role: actor.role,
         entity_type: 'parcel',
         entity_id: parcel.id,
-        action: 'PARCEL_HUB_CUSTODY_CONFIRMED',
-        old_state: { status: 'PRE_HUB_CUSTODY', currentHubId: null },
-        new_state: { status: ParcelStatus.STORED_AT_HUB, currentHubId: hub.id, receivedAt: receivedAt.toISOString() },
+        action: party === 'COURIER' ? 'PARCEL_COURIER_HANDOVER_EVIDENCE_SUBMITTED' : 'PARCEL_HUB_RECEIPT_EVIDENCE_SUBMITTED',
+        old_state: { status: oldStatus },
+        new_state: {
+          status: savedParcel.status,
+          party,
+          evidenceRef,
+          courierConfirmed: Boolean(savedParcel.courier_handover_evidence_ref),
+          hubConfirmed: Boolean(savedParcel.hub_receipt_evidence_ref),
+          custodyConfirmed: bothConfirmed,
+        },
         transaction_id: parcel.id,
-        correlation_id: `parcel-stage:${parcel.id}:HUB_RECEIVED`,
-        metadata: { stage: 'HUB_RECEIPT', hubId: hub.id },
+        correlation_id: `parcel-stage:${parcel.id}:CUSTODY_EVIDENCE`,
+        metadata: { stage: party === 'COURIER' ? 'COURIER_HANDOVER' : 'HUB_RECEIPT', hubId: hub.id },
       }));
 
-      // Final storage pricing is calculated when the recipient requests collection.
-      return { parcel: savedParcel, invoice: null, alreadyConfirmed: false, invoiceDeferredUntilCollectionRequest: true };
+      if (bothConfirmed) {
+        await manager.getRepository(AuditLogEntity).save(manager.getRepository(AuditLogEntity).create({
+          actor_id: actor.sub,
+          actor_role: actor.role,
+          entity_type: 'parcel',
+          entity_id: parcel.id,
+          action: 'PARCEL_HUB_CUSTODY_CONFIRMED',
+          old_state: { status: oldStatus, currentHubId: null },
+          new_state: {
+            status: ParcelStatus.STORED_AT_HUB,
+            currentHubId: hub.id,
+            receivedAt: parcel.delivered_to_hub_at?.toISOString(),
+            courierEvidenceRef: parcel.courier_handover_evidence_ref,
+            hubEvidenceRef: parcel.hub_receipt_evidence_ref,
+          },
+          transaction_id: parcel.id,
+          correlation_id: `parcel-stage:${parcel.id}:HUB_RECEIVED`,
+          metadata: { stage: 'HUB_RECEIPT', hubId: hub.id, dualConfirmation: true },
+        }));
+      }
+
+      return {
+        parcel: savedParcel,
+        custodyConfirmed: bothConfirmed,
+        awaitingConfirmation: !bothConfirmed,
+        awaitingParty: bothConfirmed ? null : party === 'COURIER' ? 'HUB' : 'COURIER',
+        invoice: null,
+        invoiceDeferredUntilCollectionRequest: bothConfirmed,
+      };
     });
   }
 
