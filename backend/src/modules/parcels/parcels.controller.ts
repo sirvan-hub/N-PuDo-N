@@ -25,6 +25,15 @@ export class ParcelsController {
     return this.parcelsService.create(dto, courierId);
   }
 
+  @Post(':id/confirm-hub-receipt')
+  @Roles(UserRole.HUB_OWNER)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Confirm physical receipt of a parcel at the assigned hub and create its invoice snapshot' })
+  @ApiResponse({ status: 200, description: 'Hub receipt confirmed and invoice snapshot created' })
+  async confirmHubReceipt(@Param('id') id: string, @CurrentUser() user: UserPayload) {
+    return this.parcelsService.confirmHubReceipt(id, user);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get parcel by ID (owner, recipient, or administrator)' })
   @ApiResponse({ status: 200, description: 'Parcel data' })
