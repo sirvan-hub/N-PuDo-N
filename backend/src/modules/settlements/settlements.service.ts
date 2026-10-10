@@ -98,13 +98,13 @@ export class SettlementsService {
 
       const postgres = manager.connection.options.type === 'postgres';
       const auditPlaceholders = postgres
-        ? '$1, $2, \'invoice\', $3, \'INVOICE_PAYMENT_RECONCILED\', $4, $5, $6, $7, $8'
-        : '?, ?, \'invoice\', ?, \'INVOICE_PAYMENT_RECONCILED\', ?, ?, ?, ?, ?';
+        ? '$1, $2, $3, \'invoice\', $4, \'INVOICE_PAYMENT_RECONCILED\', $5, $6, $7, $8, $9'
+        : '?, ?, ?, \'invoice\', ?, \'INVOICE_PAYMENT_RECONCILED\', ?, ?, ?, ?, ?';
       await manager.query(
-        `INSERT INTO audit_logs (actor_id, actor_role, entity_type, entity_id, action, old_state, new_state, transaction_id, correlation_id, metadata)
+        `INSERT INTO audit_logs (id, actor_id, actor_role, entity_type, entity_id, action, old_state, new_state, transaction_id, correlation_id, metadata)
          VALUES (${auditPlaceholders})`,
         [
-          actor.sub, actor.role, invoice.id,
+          randomUUID(), actor.sub, actor.role, invoice.id,
           JSON.stringify({ status: PaymentStatus.PENDING }),
           JSON.stringify({ status: PaymentStatus.PAID, paidAt: now.toISOString(), amount: invoice.total_amount }),
           settlement.id, idempotencyKey,
