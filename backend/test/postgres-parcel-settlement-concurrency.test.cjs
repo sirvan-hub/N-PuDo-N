@@ -121,8 +121,9 @@ test('PostgreSQL serializes concurrent payment reconciliation and parcel release
     const payment = await dataSource.getRepository(InvoiceEntity).findOneByOrFail({ id: invoice.id });
     assert.equal(payment.status, PaymentStatus.PAID);
     assert.equal(await dataSource.getRepository(RevenueAllocationEntity).countBy({ charge_id: invoice.id }), 3);
-    assert.equal((await dataSource.getRepository(WalletEntity).findOneByOrFail({ user_id: courier.id })).balance, 1080);
-    assert.equal((await dataSource.getRepository(WalletEntity).findOneByOrFail({ user_id: owner.id })).balance, 1080);
+    assert.equal(await dataSource.getRepository(RevenueAllocationEntity).countBy({ charge_id: invoice.id }), 3);
+    assert.equal((await dataSource.getRepository(WalletEntity).findOneByOrFail({ user_id: courier.id })).balance, 2700);
+    assert.equal((await dataSource.getRepository(WalletEntity).findOneByOrFail({ user_id: owner.id })).balance, 2700);
 
     const parcelService = new ParcelsService(
       dataSource.getRepository(ParcelEntity),
@@ -153,6 +154,12 @@ test('PostgreSQL serializes concurrent payment reconciliation and parcel release
       await dataSource.getRepository(WalletTransactionEntity).delete({ reference_type: 'invoice', reference_id: invoice.id }).catch(() => {});
       await dataSource.getRepository(SettlementTransactionEntity).delete({ invoice_id: invoice.id }).catch(() => {});
       await dataSource.getRepository(InvoiceEntity).delete({ id: invoice.id }).catch(() => {});
+    }
+    if (entryCharge) {
+      await dataSource.getRepository(RevenueAllocationEntity).delete({ network_entry_charge_id: entryCharge.id }).catch(() => {});
+      await dataSource.getRepository(WalletTransactionEntity).delete({ reference_type: 'network_entry_charge', reference_id: entryCharge.id }).catch(() => {});
+      await dataSource.getRepository(NetworkEntryChargeEntity).delete({ id: entryCharge.id }).catch(() => {});
+      await dataSource.getRepository(IdempotencyRecordEntity).delete({ actor_scope: `revenue:network-entry:${entryCharge.id}` }).catch(() => {});
     }
     if (parcel) {
       await dataSource.getRepository(CustodyTransferEntity).delete({ parcel_id: parcel.id }).catch(() => {});
