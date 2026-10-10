@@ -6,6 +6,7 @@ const { ParcelStatus } = require('../dist/modules/parcels/parcel-state-machine')
 const { ParcelEntity } = require('../dist/database/entities/parcel.entity');
 const { HubEntity } = require('../dist/database/entities/hub.entity');
 const { InvoiceEntity } = require('../dist/database/entities/invoice.entity');
+const { CustodyTransferEntity, CustodyTransferStatus, CustodyTransferType } = require('../dist/database/entities/custody-transfer.entity');
 const { UserRole } = require('../dist/common/interfaces/user-payload.interface');
 
 const dto = {
@@ -259,15 +260,22 @@ test('hub owner cannot release before payment and can release after invoice is p
   const parcel = {
     id: 'parcel-release-1', current_hub_id: 'hub-1', recipient_id: 'recipient-1',
     status: ParcelStatus.READY_FOR_CUSTOMER, collected_at: null,
-    delivery_code_hash: null, delivery_code_expires_at: null, delivery_code_attempts: 0,
   };
   const hub = { id: 'hub-1', owner_id: 'owner-1' };
   const invoice = { id: 'invoice-release-1', parcel_id: parcel.id, status: 'PENDING' };
+  const salt = 'a'.repeat(32);
+  const transfer = {
+    id: 'custody-transfer-1', parcel_id: parcel.id, transfer_type: CustodyTransferType.HUB_TO_RECIPIENT,
+    status: CustodyTransferStatus.PENDING, code_salt: salt,
+    code_hash: createHash('sha256').update(`${salt}:123456`).digest('hex'),
+    expires_at: new Date(Date.now() + 60_000), failed_attempts: 0,
+  };
   const manager = {
     getRepository(entity) {
       if (entity === ParcelEntity) return { findOne: async () => parcel, save: async (value) => value };
       if (entity === HubEntity) return { findOne: async () => hub };
       if (entity === InvoiceEntity) return { findOne: async () => invoice };
+      if (entity === CustodyTransferEntity) return { findOne: async () => transfer, save: async (value) => value };
       if (entity === require('../dist/database/entities/user.entity').UserEntity) return { findOne: async () => null };
       throw new Error('Unexpected repository');
     },
@@ -288,11 +296,9 @@ test('hub owner cannot release before payment and can release after invoice is p
   assert.equal(parcel.status, ParcelStatus.READY_FOR_CUSTOMER);
 
   invoice.status = 'PAID';
-  parcel.delivery_code_hash = createHash('sha256').update('123456').digest('hex');
-  parcel.delivery_code_expires_at = new Date(Date.now() + 60_000);
   await assert.rejects(service.confirmCustomerRelease(parcel.id, owner, '654321'),
     (error) => error && error.getStatus && error.getStatus() === 401);
-  assert.equal(parcel.delivery_code_attempts, 1);
+  assert.equal(transfer.failed_attempts, 1);
   const result = await service.confirmCustomerRelease(parcel.id, owner, '123456');
   assert.equal(result.alreadyReleased, false);
   assert.equal(result.parcel.status, ParcelStatus.COLLECTED);
