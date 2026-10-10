@@ -65,8 +65,8 @@ test('private evidence upload returns an opaque reference and never a public URL
   global.fetch = async (url, init) => {
     requestUrl = String(url);
     assert.equal(init.method, 'POST');
-    assert.equal(init.headers.apikey, 'server-only-test-secret');
-    assert.equal(init.headers.Authorization, 'Bearer server-only-test-secret');
+    assert.equal(new Headers(init.headers).get('apikey'), 'server-only-test-secret');
+    assert.equal(new Headers(init.headers).get('authorization'), 'Bearer server-only-test-secret');
     return new Response(JSON.stringify({ Key: 'test-object' }), {
       status: 200,
       headers: { 'content-type': 'application/json' },
