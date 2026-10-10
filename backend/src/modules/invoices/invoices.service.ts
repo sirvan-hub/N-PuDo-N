@@ -61,7 +61,8 @@ export class InvoicesService {
       base_post_cost: pricing.basePostCost, elapsed_hours: pricing.elapsedHours,
       fee_percentage: pricing.feePercentage * 100, calculated_fee: totalAmount,
       total_amount: totalAmount, status: PaymentStatus.PENDING,
-      courier_share: courierShare, hub_owner_share: hubOwnerShare, platform_fee: platformShare,\n      revenue_allocation_snapshot: snapshot,
+      courier_share: courierShare, hub_owner_share: hubOwnerShare, platform_fee: platformShare,
+      revenue_allocation_snapshot: snapshot,
       tariff_snapshot: pricing.tariffSnapshot ?? {
         snapshotVersion: 1, tariffKey: 'PUDO-N-TARIFF-168H-V1',
         basePostCost: pricing.basePostCost, elapsedHours: pricing.elapsedHours,
