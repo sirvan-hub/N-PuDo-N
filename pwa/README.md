@@ -1,17 +1,19 @@
 # Pudo-N PWA — starter
 
-A standalone React + TypeScript + Vite Progressive Web App for the Pudo-N project. The UI is Persian/RTL and begins with phone + OTP authentication, then shows the workspace corresponding to the role returned by the API.
+A standalone Persian/RTL React + TypeScript + Vite Progressive Web App for Pudo-N. Temporary authentication uses username and password; the API can be switched to OTP later when SMS delivery is available.
 
-## Scope of this first slice
+## Authentication contract
 
-- Independent app under `pwa/`; backend files are not changed.
-- Login and OTP verification use the canonical Nest API contract:
-  - `POST {VITE_API_BASE_URL}/auth/login` with `{ "phone": "09..." }`
-  - `POST {VITE_API_BASE_URL}/auth/verify-otp` with the phone and the five-digit code actually issued by the backend.
+- `POST {VITE_API_BASE_URL}/auth/register` with `{ "username": "...", "password": "...", "phone": "09...", "full_name": "..." }` creates a **recipient-only** account.
+- `POST {VITE_API_BASE_URL}/auth/login` with `{ "username": "...", "password": "..." }` returns an access token and user role.
+- `POST {VITE_API_BASE_URL}/auth/verify-otp` is temporarily disabled and returns HTTP 410 Gone.
+- Usernames must be 3–32 ASCII letters, digits, dots, underscores, or hyphens. Passwords must be 10–72 characters.
+- Passwords are hashed with bcrypt on the server. Failed login attempts are counted; five consecutive failures trigger a 15-minute lock.
 - JWT is held in memory only and is cleared on logout/refresh.
-- Role names handled: `COURIER`, `HUB_OWNER`, `RECIPIENT`, `ADMIN`, and `SUPER_ADMIN` (shown in the admin workspace).
-- Includes install metadata and a small offline app-shell service worker.
-- This is a starter shell, not a claim that parcel, hub, settlement, or admin operations are implemented.
+
+## Existing accounts
+
+Accounts created before password login was added have no password hash and cannot sign in yet. They need credentials provisioned through a controlled admin/database process. Public registration only creates recipient accounts; courier, hub owner, and administrator accounts must not be self-assigned.
 
 ## Run locally
 
@@ -23,13 +25,13 @@ npm install
 npm run dev
 ```
 
-The app deliberately does not guess the API address. Set `VITE_API_BASE_URL` to the **base URL ending in `/v1`** for a deployed backend that implements the Nest auth routes. Example local value:
+Set `VITE_API_BASE_URL` to the backend base URL ending in `/v1`. Example local value:
 
 ```text
 VITE_API_BASE_URL=http://localhost:3000/v1
 ```
 
-For Vite, local variables can be placed in `pwa/.env.local`; do not commit secrets. The current Render service was previously identified as the legacy Express backend with `/api/v1` routes and no auth controller, so do not point this app at it. The PWA uses the browser-visible API only; never put secrets in `VITE_*` variables.
+For Vite, local variables can be placed in `pwa/.env.local`; do not commit secrets. Never put server secrets in `VITE_*` variables. The current legacy Render service does not implement this Nest authentication contract; do not point the PWA at it until the backend is deliberately deployed and verified.
 
 ## Build
 
@@ -38,9 +40,4 @@ npm run build
 npm run preview
 ```
 
-## Security and integration notes
-
-- The frontend never treats a successful OTP request as an authenticated session; it requires an access token and role from OTP verification.
-- The API must enforce all authorization and data-access rules. Hiding a panel in the UI is not access control.
-- The current Nest backend has a development OTP implementation that uses a fixed code and logs it with the phone number. This is not production-safe. Do not expose the backend publicly until OTP delivery, rate limiting, and account protections are production-ready.
-- No deployment workflow or hosting settings are changed by this starter.
+This remains a starter shell: parcel, hub, settlement, and admin operations are not yet implemented. The API must enforce all authorization and data-access rules; hiding a panel in the UI is not access control.
