@@ -39,6 +39,17 @@ test('hub share configuration records rate changes and preserves default 30%', a
     assert.ok(history.some((item) => item.oldPercentage === 30 && item.newPercentage === 32.5 && item.changedBy === actor.sub));
     await service.updatePercentage(30, 'restore test baseline', actor);
   } finally {
+    if (hubId) await dataSource.query('DELETE FROM settlement_transactions WHERE hub_id = $1', [hubId]);
+    if (walletId) await dataSource.query('DELETE FROM wallet_transactions WHERE wallet_id = $1', [walletId]);
+    if (ownerId || adminId) {
+      await dataSource.query(
+        `DELETE FROM idempotency_records WHERE actor_scope = ANY($1::text[]) AND operation_type IN ('settlement.hub-payout-request', 'settlement.hub-payout-review')`,
+        [[ownerId, adminId].filter(Boolean).map((id) => `user:${id}`)],
+      );
+    }
+    if (walletId) await dataSource.query('DELETE FROM wallets WHERE id = $1', [walletId]);
+    if (hubId) await dataSource.query('DELETE FROM hubs WHERE id = $1', [hubId]);
+    if (ownerId || adminId) await dataSource.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [[ownerId, adminId].filter(Boolean)]);
     await dataSource.destroy();
   }
 });
@@ -52,6 +63,7 @@ test('hub payout request reserves funds, is idempotent, and rejection releases t
   const { HubPayoutRequestsService } = require('../dist/modules/settlements/hub-payout-requests.service');
   const { UserRole } = require('../dist/common/interfaces/user-payload.interface');
   await dataSource.initialize();
+  let ownerId, adminId, hubId, walletId;
   try {
     const suffix = Math.random().toString(16).slice(2, 10);
     const ownerRows = await dataSource.query(
@@ -62,18 +74,19 @@ test('hub payout request reserves funds, is idempotent, and rejection releases t
       'INSERT INTO users (phone, role) VALUES ($1, $2) RETURNING id',
       [`+1890${suffix}`, 'ADMIN'],
     );
-    const ownerId = ownerRows[0].id;
-    const adminId = adminRows[0].id;
+    ownerId = ownerRows[0].id;
+    adminId = adminRows[0].id;
     const hubRows = await dataSource.query(
       `INSERT INTO hubs (owner_id, name, address, city, operating_hours, qr_code_hash)
        VALUES ($1, $2, $3, $4, $5::jsonb, $6) RETURNING id`,
       [ownerId, 'Payout CI Hub', 'CI address', 'CI City', '{}', `payout-qr-${suffix}`],
     );
-    const hubId = hubRows[0].id;
-    await dataSource.query(
-      'INSERT INTO wallets (user_id, balance, pending_balance, blocked_balance, total_earned) VALUES ($1, 5000, 0, 0, 5000)',
+    hubId = hubRows[0].id;
+    const walletRows = await dataSource.query(
+      'INSERT INTO wallets (user_id, balance, pending_balance, blocked_balance, total_earned) VALUES ($1, 5000, 0, 0, 5000) RETURNING id',
       [ownerId],
     );
+    walletId = walletRows[0].id;
     const service = new HubPayoutRequestsService(dataSource);
     const owner = { sub: ownerId, phone: `+1889${suffix}`, role: UserRole.HUB_OWNER, is_verified: true };
     const admin = { sub: adminId, phone: `+1890${suffix}`, role: UserRole.ADMIN, is_verified: true };
