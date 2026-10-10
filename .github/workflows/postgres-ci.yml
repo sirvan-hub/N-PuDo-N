@@ -57,5 +57,9 @@ jobs:
         run: npm ci
       - name: Build backend
         run: npm run build
-      - name: Database configuration and PostgreSQL smoke tests
-        run: node --test test/database-options.test.cjs test/postgres-smoke.cjs test/pricing-service.test.cjs
+      - name: Apply versioned migration to disposable PostgreSQL
+        run: npm run migration:run
+      - name: Database, pricing, and rollback-only data rehearsal tests
+        run: node --test test/database-options.test.cjs test/postgres-smoke.cjs test/pricing-service.test.cjs test/postgres-migration-rehearsal.test.cjs
+      - name: Verify migration can be reverted
+        run: npm run migration:revert
