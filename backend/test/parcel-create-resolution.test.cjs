@@ -90,7 +90,7 @@ test('hub receipt evidence alone does not finalize custody before courier confir
   const manager = {
     getRepository(entity) {
       if (entity === ParcelEntity) return { findOne: async () => parcel, save: async (value) => value };
-      if (entity === HubEntity) return { findOne: async ({ where }) => where.owner_id === 'owner-1' ? hub : null };
+      if (entity === HubEntity) return { findOne: async () => hub };
       if (entity === InvoiceEntity) return invoiceRepo;
       if (entity === AuditLogEntity) return { create: (value) => value, save: async (value) => value };
       throw new Error('Unexpected repository');
@@ -324,7 +324,7 @@ test('hub owner cannot release before payment and can release after invoice is p
   await assert.rejects(service.confirmCustomerRelease(parcel.id, owner, '654321', 'private-hub-evidence-001'),
     (error) => error && error.getStatus && error.getStatus() === 401);
   assert.equal(transfer.failed_attempts, 1);
-  const result = await service.confirmCustomerRelease(parcel.id, owner, '123456');
+  const result = await service.confirmCustomerRelease(parcel.id, owner, '123456', 'private-hub-evidence-001');
   assert.equal(result.verified, true);
   assert.equal(result.awaitingRecipientEvidence, true);
   assert.equal(result.parcelId, parcel.id);
