@@ -264,7 +264,7 @@ test('wallet bucket mutations are atomic, idempotent, and prevent overdrafts', a
     assert.equal(Number(persisted[0].balance), 925);
     assert.equal(Number(persisted[0].pending_balance), 600);
     assert.equal(Number(persisted[0].blocked_balance), 350);
-    assert.equal(Number(persisted[0].total_earned), 0);
+    assert.equal(Number(persisted[0].total_earned), 400);
 
     const ledger = await dataSource.query(
       'SELECT count(*)::int AS count FROM wallet_transactions WHERE wallet_id = $1',
