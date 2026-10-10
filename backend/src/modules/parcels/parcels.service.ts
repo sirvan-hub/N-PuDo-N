@@ -15,7 +15,7 @@ export class ParcelsService {
     const parcel = this.repo.create({
       ...dto,
       courier_id: courierId,
-      status: 'PENDING_APPROVAL',
+      status: 'DELIVERY_ATTEMPT',
       created_at: new Date(),
       updated_at: new Date(),
     });
