@@ -26,18 +26,39 @@ export class PricingService {
     const elapsed = (currentTime.getTime() - deliveredAt.getTime()) / 3_600_000;
     if (elapsed < 0) throw new BadRequestException('Pricing time precedes hub delivery');
 
+    const billableElapsed = Math.min(elapsed, 168);
     let pct: number;
-    if (elapsed < 12) pct = 0.20;
-    else if (elapsed <= 24) pct = 0.40;
-    else pct = 0.40 + Math.ceil((elapsed - 24) / 24) * 0.50;
+    if (billableElapsed < 12) pct = 0.20;
+    else if (billableElapsed <= 24) pct = 0.40;
+    else pct = 0.40 + Math.ceil((billableElapsed - 24) / 24) * 0.50;
 
     const fee = Math.ceil(basePostCost * pct);
+    const elapsedHours = Math.round(billableElapsed * 100) / 100;
     return {
       basePostCost,
-      elapsedHours: Math.round(elapsed * 100) / 100,
+      elapsedHours,
+      actualElapsedHours: Math.round(elapsed * 100) / 100,
       feePercentage: pct,
       calculatedFee: fee,
       isExpired: elapsed >= 168,
+      tariffSnapshot: {
+        snapshotVersion: 1,
+        tariffKey: 'PUDO-N-TARIFF-168H-V1',
+        clockStartsAt: 'delivered_to_hub_at',
+        actualElapsedHours: Math.round(elapsed * 100) / 100,
+        billableElapsedHours: elapsedHours,
+        under12HoursPercent: 20,
+        from12To24HoursPercent: 40,
+        additionalStarted24HoursPercent: 50,
+        maxBillableHours: 168,
+        appliedPercentage: pct * 100,
+        basePostCost,
+        calculatedFee: fee,
+        roundingMode: 'CEIL',
+        currencyUnit: 'TOMAN',
+        calculatedAt: currentTime.toISOString(),
+        capReached: elapsed >= 168,
+      },
     };
   }
 }
