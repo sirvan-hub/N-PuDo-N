@@ -10,6 +10,7 @@ const { UserEntity } = require('../dist/database/entities/user.entity');
 const { RevenueAllocationEntity } = require('../dist/database/entities/revenue-allocation.entity');
 const { WalletEntity } = require('../dist/database/entities/wallet.entity');
 const { WalletTransactionEntity } = require('../dist/database/entities/wallet-transaction.entity');
+const { NetworkEntryChargeEntity, NetworkEntryChargeStatus } = require('../dist/database/entities/network-entry-charge.entity');
 const { InvoiceEntity, PaymentStatus } = require('../dist/database/entities/invoice.entity');
 const { SettlementTransactionEntity, SettlementTransactionType } = require('../dist/database/entities/settlement-transaction.entity');
 const { IdempotencyRecordEntity } = require('../dist/database/entities/idempotency-record.entity');
@@ -27,7 +28,7 @@ test('PostgreSQL serializes concurrent payment reconciliation and parcel release
   const dataSource = new DataSource(createDatabaseOptions());
   await dataSource.initialize();
   const suffix = randomUUID().replace(/-/g, '').slice(0, 12);
-  let owner, recipient, admin, courier, hub, parcel, invoice;
+  let owner, recipient, admin, courier, hub, parcel, invoice, entryCharge;
 
   try {
     owner = await dataSource.getRepository(UserEntity).save(dataSource.getRepository(UserEntity).create({
@@ -49,9 +50,32 @@ test('PostgreSQL serializes concurrent payment reconciliation and parcel release
     parcel = await dataSource.getRepository(ParcelEntity).save(dataSource.getRepository(ParcelEntity).create({
       tracking_code: `CC-${suffix}`, recipient_phone: recipient.phone, recipient_name: recipient.full_name,
       recipient_address: 'CI address', package_size: 'SMALL', base_post_cost: 18000,
-      recipient_id: recipient.id, courier_id: courier.id, proposed_hub_id: hub.id, current_hub_id: hub.id,
-      status: ParcelStatus.READY_FOR_CUSTOMER, delivered_to_hub_at: new Date(),
+      recipient_id: recipient.id, courier_id: courier.id, proposed_hub_id: null, current_hub_id: null,
+      status: ParcelStatus.DELIVERY_ATTEMPT, delivered_to_hub_at: null,
     }));
+    entryCharge = await dataSource.getRepository(NetworkEntryChargeEntity).save(dataSource.getRepository(NetworkEntryChargeEntity).create({
+      parcel_id: parcel.id, postal_postage_amount: 18000, fee_percent: 30, amount: 5400,
+      status: NetworkEntryChargeStatus.VERIFIED, receipt_evidence_ref: `private-entry-receipt-${suffix}`,
+      provider_reference: `entry-provider-${suffix}`, verified_by: admin.id, verified_at: new Date(),
+      tariff_snapshot: { snapshotVersion: 1, chargeType: 'NETWORK_ENTRY', postalPostageAmount: 18000, feePercent: 30, amount: 5400 },
+    }));
+    const entryWorkflowService = new ParcelsService(
+      dataSource.getRepository(ParcelEntity), dataSource.getRepository(HubEntity), dataSource.getRepository(UserEntity),
+      dataSource, { resolveBaseCost: async () => ({}) }, { create: async () => ({}) },
+    );
+    const hubSelection = await entryWorkflowService.requestPudo(parcel.id, hub.id, {
+      sub: recipient.id, phone: recipient.phone, role: UserRole.RECIPIENT,
+    });
+    assert.equal(hubSelection.status, ParcelStatus.HUB_SELECTED);
+    assert.equal(await dataSource.getRepository(RevenueAllocationEntity).countBy({ network_entry_charge_id: entryCharge.id }), 3);
+    assert.equal((await dataSource.getRepository(WalletEntity).findOneByOrFail({ user_id: courier.id })).balance, 1620);
+    assert.equal((await dataSource.getRepository(WalletEntity).findOneByOrFail({ user_id: owner.id })).balance, 1620);
+
+    parcel.status = ParcelStatus.READY_FOR_CUSTOMER;
+    parcel.current_hub_id = hub.id;
+    parcel.delivered_to_hub_at = new Date();
+    await dataSource.getRepository(ParcelEntity).save(parcel);
+
     invoice = await dataSource.getRepository(InvoiceEntity).save(dataSource.getRepository(InvoiceEntity).create({
       invoice_number: `INV-CC-${suffix}`, parcel_id: parcel.id, recipient_id: recipient.id, hub_id: hub.id,
       base_post_cost: 18000, elapsed_hours: 1, fee_percentage: 20, calculated_fee: 3600,
