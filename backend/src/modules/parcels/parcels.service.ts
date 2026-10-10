@@ -4,6 +4,7 @@ import { DataSource, Repository } from 'typeorm';
 import { ParcelEntity } from '../../database/entities/parcel.entity';
 import { HubEntity } from '../../database/entities/hub.entity';
 import { UserEntity } from '../../database/entities/user.entity';
+import { InvoiceEntity } from '../../database/entities/invoice.entity';
 import { UserPayload, UserRole } from '../../common/interfaces/user-payload.interface';
 import { ParcelStatus, canTransitionParcel } from './parcel-state-machine';
 import { PricingService } from '../pricing/pricing.service';
@@ -64,7 +65,7 @@ export class ParcelsService {
         : null;
       if (!hub) throw new ForbiddenException('Parcel is not assigned to a hub owned by this user');
 
-      const invoices = manager.getRepository('InvoiceEntity');
+      const invoices = manager.getRepository(InvoiceEntity);
       const existingInvoice = await invoices.findOne({ where: { parcel_id: parcel.id } });
       if (parcel.current_hub_id === hub.id && parcel.delivered_to_hub_at && existingInvoice) {
         return { parcel, invoice: existingInvoice, alreadyConfirmed: true };
