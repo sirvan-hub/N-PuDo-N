@@ -103,10 +103,8 @@ export class ParcelsService {
         : null;
       if (!hub) throw new ForbiddenException('Parcel is not assigned to a hub owned by this user');
 
-      const invoices = manager.getRepository(InvoiceEntity);
-      const existingInvoice = await invoices.findOne({ where: { parcel_id: parcel.id } });
-      if (parcel.current_hub_id === hub.id && parcel.delivered_to_hub_at && existingInvoice) {
-        return { parcel, invoice: existingInvoice, alreadyConfirmed: true };
+      if (parcel.current_hub_id === hub.id && parcel.delivered_to_hub_at) {
+        return { parcel, invoice: null, alreadyConfirmed: true, invoiceDeferredUntilCollectionRequest: true };
       }
       if (parcel.current_hub_id || parcel.delivered_to_hub_at) {
         throw new ConflictException('Parcel custody has already been recorded');
@@ -131,9 +129,8 @@ export class ParcelsService {
       parcel.updated_at = receivedAt;
       const savedParcel = await parcels.save(parcel);
 
-      const pricing = this.pricingService.calculate(savedParcel, receivedAt);
-      const invoice = await this.invoicesService.create(savedParcel, pricing, manager);
-      return { parcel: savedParcel, invoice, alreadyConfirmed: false };
+      // Final storage pricing is calculated when the recipient requests collection.
+      return { parcel: savedParcel, invoice: null, alreadyConfirmed: false, invoiceDeferredUntilCollectionRequest: true };
     });
   }
 
