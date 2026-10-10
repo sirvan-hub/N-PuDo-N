@@ -25,6 +25,15 @@ export class ParcelsController {
     return this.parcelsService.create(dto, courierId);
   }
 
+  @Post(':id/request-pudo')
+  @Roles(UserRole.RECIPIENT)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Recipient requests PUDO and selects an accepting hub' })
+  @ApiResponse({ status: 200, description: 'PUDO request accepted and hub selected' })
+  async requestPudo(@Param('id') id: string, @Body('hub_id') hubId: string, @CurrentUser() user: UserPayload) {
+    return this.parcelsService.requestPudo(id, hubId, user);
+  }
+
   @Post(':id/confirm-hub-receipt')
   @Roles(UserRole.HUB_OWNER)
   @HttpCode(HttpStatus.OK)
