@@ -57,7 +57,7 @@ export class ParcelsService {
     return this.dataSource.transaction(async (manager) => {
       const parcels = manager.getRepository(ParcelEntity);
       const hubs = manager.getRepository(HubEntity);
-      const parcel = await parcels.findOne({ where: { id: parcelId }, lock: { mode: 'pessimistic_write' } });
+      const parcel = await this.findParcelForUpdate(manager, parcelId);
       if (!parcel) throw new NotFoundException('Parcel not found');
       if (parcel.recipient_id !== actor.sub && parcel.recipient_phone !== actor.phone) {
         throw new ForbiddenException('Only the parcel recipient can request PUDO for this parcel');
@@ -98,10 +98,7 @@ export class ParcelsService {
     return this.dataSource.transaction(async (manager) => {
       const parcels = manager.getRepository(ParcelEntity);
       const hubs = manager.getRepository(HubEntity);
-      const parcel = await parcels.findOne({
-        where: { id: parcelId },
-        lock: { mode: 'pessimistic_write' },
-      });
+      const parcel = await this.findParcelForUpdate(manager, parcelId);
       if (!parcel) throw new NotFoundException('Parcel not found');
 
       const hub = parcel.proposed_hub_id
@@ -186,6 +183,16 @@ export class ParcelsService {
       }
       const invoice = await this.invoicesService.create(parcel, pricing, manager);
       return { parcel, invoice, alreadyIssued: false };
+    });
+  }
+
+  private async findParcelForUpdate(manager: any, parcelId: string) {
+    const repository = manager.getRepository(ParcelEntity);
+    return repository.findOne({
+      where: { id: parcelId },
+      ...(manager.connection.options.type === 'postgres'
+        ? { lock: { mode: 'pessimistic_write' as const } }
+        : {}),
     });
   }
 
