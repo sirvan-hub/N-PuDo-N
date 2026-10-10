@@ -53,7 +53,7 @@ test('migrated core schema accepts a relational test-data rehearsal and rolls it
     );
     await db.query(
       'INSERT INTO invoices (invoice_number, parcel_id, recipient_id, hub_id, base_post_cost, elapsed_hours, fee_percentage, calculated_fee, total_amount, hub_owner_share, platform_fee) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
-      ['CI-' + parcelId, parcelId, recipientId, hubId, 50000, 12, 40, 20000, 20000, 14000, 6000],
+      ['CI-' + parcelId.replace(/-/g, '').slice(0, 20), parcelId, recipientId, hubId, 50000, 12, 40, 20000, 20000, 14000, 6000],
     );
     await db.query('INSERT INTO wallets (user_id, balance, pending_balance, total_earned) VALUES ($1, $2, $3, $4)', [ownerId, 14000, 0, 14000]);
 
