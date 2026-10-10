@@ -1,11 +1,12 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
-import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { ParcelEntity } from '../../database/entities/parcel.entity';
 import { HubEntity } from '../../database/entities/hub.entity';
 import { UserEntity } from '../../database/entities/user.entity';
 import { InvoiceEntity, PaymentStatus } from '../../database/entities/invoice.entity';
+import { CustodyTransferEntity, CustodyTransferStatus, CustodyTransferType } from '../../database/entities/custody-transfer.entity';
 import { UserPayload, UserRole } from '../../common/interfaces/user-payload.interface';
 import { ParcelStatus, canTransitionParcel } from './parcel-state-machine';
 import { PricingService } from '../pricing/pricing.service';
@@ -196,11 +197,11 @@ export class ParcelsService {
     });
   }
 
-  private hashDeliveryCode(code: string) {
-    return createHash('sha256').update(code).digest('hex');
+  private hashDeliveryCode(code: string, salt: string) {
+    return createHash('sha256').update(`${salt}:${code}`).digest('hex');
   }
 
-  private async sendDeliveryCode(phone: string, parcelId: string, code: string) {
+  private async sendDeliveryCode(phone: string, parcelId: string, transferId: string, code: string) {
     const endpoint = process.env.DELIVERY_CODE_SMS_URL;
     const token = process.env.DELIVERY_CODE_SMS_TOKEN;
     if (!endpoint || !token) {
@@ -220,6 +221,7 @@ export class ParcelsService {
           to: phone,
           template: 'pudo_delivery_code',
           parcelId,
+          transferId,
           message: `Pudo-N delivery code: ${code}. It expires in 10 minutes.`,
         }),
       });
@@ -229,7 +231,7 @@ export class ParcelsService {
     if (!response.ok) throw new ServiceUnavailableException('Delivery-code SMS gateway rejected the request');
   }
 
-  /** Issues a short-lived code only to the registered recipient phone through a configured SMS gateway. */
+  /** Issues a short-lived HUB_TO_RECIPIENT custody code to the registered phone. */
   async requestDeliveryCode(parcelId: string, actor: UserPayload) {
     if (actor.role !== UserRole.RECIPIENT) throw new ForbiddenException('Only the parcel recipient can request a delivery code');
     const parcel = await this.repo.findOne({ where: { id: parcelId } });
@@ -245,42 +247,61 @@ export class ParcelsService {
       throw new ConflictException('Invoice must be PAID before requesting a delivery code');
     }
 
-    const requestedAt = new Date();
-    if (parcel.delivery_code_requested_at && requestedAt.getTime() - new Date(parcel.delivery_code_requested_at).getTime() < 60_000) {
-      throw new ConflictException('Please wait before requesting another delivery code');
-    }
     const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
+    const salt = randomBytes(16).toString('hex');
+    const requestedAt = new Date();
     const expiresAt = new Date(requestedAt.getTime() + 10 * 60_000);
-    const hash = this.hashDeliveryCode(code);
-    await this.dataSource.transaction(async (manager) => {
-      const parcels = manager.getRepository(ParcelEntity);
-      const locked = await parcels.findOne({ where: { id: parcelId }, lock: { mode: 'pessimistic_write' } });
-      if (!locked || locked.recipient_id !== actor.sub || locked.status !== ParcelStatus.READY_FOR_CUSTOMER) {
+    const transferRepository = this.dataSource.getRepository(CustodyTransferEntity);
+    const transfer = await this.dataSource.transaction(async (manager) => {
+      const lockedParcel = await this.findParcelForUpdate(manager, parcelId);
+      if (!lockedParcel || lockedParcel.recipient_id !== actor.sub ||
+          lockedParcel.status !== ParcelStatus.READY_FOR_CUSTOMER || lockedParcel.current_hub_id == null) {
         throw new ConflictException('Parcel eligibility changed; request a new delivery code');
       }
-      locked.delivery_code_hash = hash;
-      locked.delivery_code_expires_at = expiresAt;
-      locked.delivery_code_attempts = 0;
-      locked.delivery_code_consumed_at = null;
-      locked.delivery_code_requested_at = requestedAt;
-      await parcels.save(locked);
+      const transfers = manager.getRepository(CustodyTransferEntity);
+      const latest = await transfers.findOne({
+        where: {
+          parcel_id: parcelId,
+          transfer_type: CustodyTransferType.HUB_TO_RECIPIENT,
+          receiver_id: actor.sub,
+        },
+        order: { created_at: 'DESC' },
+      });
+      if (latest && requestedAt.getTime() - new Date(latest.created_at).getTime() < 60_000) {
+        throw new ConflictException('Please wait before requesting another delivery code');
+      }
+      await transfers.update(
+        { parcel_id: parcelId, transfer_type: CustodyTransferType.HUB_TO_RECIPIENT, status: CustodyTransferStatus.PENDING },
+        { status: CustodyTransferStatus.EXPIRED, failure_reason: 'Superseded by a newer delivery-code request' },
+      );
+      return transfers.save(transfers.create({
+        parcel_id: parcelId,
+        from_hub_id: lockedParcel.current_hub_id,
+        receiver_id: lockedParcel.recipient_id,
+        transfer_type: CustodyTransferType.HUB_TO_RECIPIENT,
+        status: CustodyTransferStatus.PENDING,
+        code_salt: salt,
+        code_hash: this.hashDeliveryCode(code, salt),
+        expires_at: expiresAt,
+        failed_attempts: 0,
+      }));
     });
 
     try {
-      await this.sendDeliveryCode(parcel.recipient_phone, parcel.id, code);
+      await this.sendDeliveryCode(parcel.recipient_phone, parcel.id, transfer.id, code);
     } catch (error) {
-      await this.repo.update(
-        { id: parcel.id, delivery_code_hash: hash },
-        { delivery_code_hash: null, delivery_code_expires_at: null },
+      await transferRepository.update(
+        { id: transfer.id, status: CustodyTransferStatus.PENDING },
+        { status: CustodyTransferStatus.EXPIRED, failure_reason: 'SMS delivery failed' },
       );
       throw error;
     }
-    return { parcelId: parcel.id, sent: true, expiresAt: expiresAt.toISOString(), channel: 'SMS' };
+    return { parcelId: parcel.id, transferId: transfer.id, sent: true, expiresAt: expiresAt.toISOString(), channel: 'SMS' };
   }
 
   /**
-   * Release is gated by paid invoice and a valid, unexpired, one-time code sent to
-   * the registered recipient phone. The parcel lock serializes concurrent attempts.
+   * Release is gated by a paid invoice and a valid one-time HUB_TO_RECIPIENT custody
+   * transfer. Parcel and transfer locks serialize concurrent verification attempts.
    */
   async confirmCustomerRelease(parcelId: string, actor: UserPayload, code: string, nationalId?: string) {
     if (actor.role !== UserRole.HUB_OWNER) {
@@ -291,7 +312,7 @@ export class ParcelsService {
 
     const result = await this.dataSource.transaction(async (manager) => {
       const parcels = manager.getRepository(ParcelEntity);
-      const parcel = await parcels.findOne({ where: { id: parcelId }, lock: { mode: 'pessimistic_write' } });
+      const parcel = await this.findParcelForUpdate(manager, parcelId);
       if (!parcel) throw new NotFoundException('Parcel not found');
       const hub = parcel.current_hub_id
         ? await manager.getRepository(HubEntity).findOne({ where: { id: parcel.current_hub_id, owner_id: actor.sub } })
@@ -309,26 +330,35 @@ export class ParcelsService {
       if (invoice.status !== PaymentStatus.PAID) {
         throw new ConflictException('Invoice must be PAID before physical parcel release');
       }
-      if (!parcel.delivery_code_hash || !parcel.delivery_code_expires_at || parcel.delivery_code_consumed_at) {
-        return { invalidCode: true, codeUnavailable: true };
-      }
-      if (parcel.delivery_code_expires_at.getTime() <= Date.now()) {
-        parcel.delivery_code_hash = null;
-        parcel.delivery_code_expires_at = null;
-        await parcels.save(parcel);
+
+      const transfers = manager.getRepository(CustodyTransferEntity);
+      const transfer = await transfers.findOne({
+        where: {
+          parcel_id: parcel.id,
+          transfer_type: CustodyTransferType.HUB_TO_RECIPIENT,
+          status: CustodyTransferStatus.PENDING,
+        },
+        order: { created_at: 'DESC' },
+        ...(manager.connection.options.type === 'postgres' ? { lock: { mode: 'pessimistic_write' as const } } : {}),
+      });
+      if (!transfer) return { invalidCode: true, codeUnavailable: true };
+      if (transfer.expires_at.getTime() <= Date.now()) {
+        transfer.status = CustodyTransferStatus.EXPIRED;
+        transfer.failure_reason = 'Delivery code expired';
+        await transfers.save(transfer);
         return { invalidCode: true, codeExpired: true };
       }
-      const expected = Buffer.from(parcel.delivery_code_hash, 'hex');
-      const supplied = Buffer.from(this.hashDeliveryCode(code), 'hex');
+      const expected = Buffer.from(transfer.code_hash, 'hex');
+      const supplied = Buffer.from(this.hashDeliveryCode(code, transfer.code_salt), 'hex');
       const matches = expected.length === supplied.length && timingSafeEqual(expected, supplied);
       if (!matches) {
-        parcel.delivery_code_attempts = (parcel.delivery_code_attempts ?? 0) + 1;
-        if (parcel.delivery_code_attempts >= 5) {
-          parcel.delivery_code_hash = null;
-          parcel.delivery_code_expires_at = null;
+        transfer.failed_attempts = (transfer.failed_attempts ?? 0) + 1;
+        if (transfer.failed_attempts >= 5) {
+          transfer.status = CustodyTransferStatus.EXPIRED;
+          transfer.failure_reason = 'Maximum delivery-code attempts exceeded';
         }
-        await parcels.save(parcel);
-        return { invalidCode: true, attemptsRemaining: Math.max(0, 5 - parcel.delivery_code_attempts) };
+        await transfers.save(transfer);
+        return { invalidCode: true, attemptsRemaining: Math.max(0, 5 - transfer.failed_attempts) };
       }
 
       if (nationalId) {
@@ -338,7 +368,6 @@ export class ParcelsService {
         if (recipient?.national_id && recipient.national_id !== nationalId) {
           return { nationalIdMismatch: true };
         }
-        parcel.delivery_national_id_last4 = nationalId.slice(-4);
       }
 
       const oldStatus = parcel.status;
@@ -352,13 +381,13 @@ export class ParcelsService {
       const now = new Date();
       parcel.status = ParcelStatus.COLLECTED;
       parcel.collected_at = now;
-      parcel.delivery_code_consumed_at = now;
-      parcel.delivery_verified_at = now;
-      parcel.delivery_verified_by = actor.sub;
-      parcel.delivery_code_hash = null;
-      parcel.delivery_code_expires_at = null;
       parcel.updated_at = now;
       await parcels.save(parcel);
+
+      transfer.status = CustodyTransferStatus.CONFIRMED;
+      transfer.consumed_at = now;
+      transfer.completed_at = now;
+      await transfers.save(transfer);
 
       const postgres = manager.connection.options.type === 'postgres';
       const placeholders = postgres
@@ -371,11 +400,11 @@ export class ParcelsService {
           actor.sub, actor.role, parcel.id,
           JSON.stringify({ status: oldStatus }),
           JSON.stringify({ status: ParcelStatus.COLLECTED, collectedAt: now.toISOString(), verifiedByOneTimeCode: true }),
-          parcel.id, `delivery:${parcel.id}:${now.getTime()}`,
-          JSON.stringify({ invoiceId: invoice.id, nationalIdLast4: parcel.delivery_national_id_last4 ?? null }),
+          transfer.id, `delivery:${parcel.id}:${now.getTime()}`,
+          JSON.stringify({ invoiceId: invoice.id, custodyTransferId: transfer.id, nationalIdLast4: nationalId?.slice(-4) ?? null }),
         ],
       );
-      return { parcel, alreadyReleased: false, invoiceId: invoice.id, releasedAt: now.toISOString() };
+      return { parcel, alreadyReleased: false, invoiceId: invoice.id, custodyTransferId: transfer.id, releasedAt: now.toISOString() };
     });
 
     if ('invalidCode' in result) {
