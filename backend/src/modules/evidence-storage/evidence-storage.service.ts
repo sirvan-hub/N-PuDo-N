@@ -200,11 +200,12 @@ export class EvidenceStorageService {
       response = await fetch(`${baseUrl}/storage/v1/${encodedPath}`, {
         ...init,
         signal: AbortSignal.timeout(10_000),
-        headers: {
-          apikey: secret,
-          Authorization: `Bearer ${secret}`,
-          ...init.headers,
-        },
+        headers: (() => {
+          const headers = new Headers(init.headers);
+          headers.set('apikey', secret);
+          headers.set('Authorization', `Bearer ${secret}`);
+          return headers;
+        })(),
       });
     } catch {
       throw new ServiceUnavailableException('Private evidence storage is temporarily unavailable');
