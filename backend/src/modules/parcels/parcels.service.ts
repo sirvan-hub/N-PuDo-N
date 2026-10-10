@@ -3,6 +3,7 @@ import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { ParcelEntity } from '../../database/entities/parcel.entity';
+import { AuditLogEntity } from '../../database/entities/audit-log.entity';
 import { HubEntity } from '../../database/entities/hub.entity';
 import { UserEntity } from '../../database/entities/user.entity';
 import { InvoiceEntity, PaymentStatus } from '../../database/entities/invoice.entity';
@@ -34,7 +35,7 @@ export class ParcelsService {
 
     const packageSize = dto.package_size || 'MEDIUM';
     const basePrice = await this.pricingService.resolveBaseCost(packageSize, new Date());
-    const parcel = this.repo.create({
+    const parcelData = {
       ...dto,
       package_size: packageSize,
       base_post_cost: basePrice.basePostCost,
@@ -45,7 +46,33 @@ export class ParcelsService {
       status: ParcelStatus.DELIVERY_ATTEMPT,
       created_at: new Date(),
       updated_at: new Date(),
-    });
+    };
+    if (this.dataSource?.transaction) {
+      return this.dataSource.transaction(async (manager) => {
+        const parcels = manager.getRepository(ParcelEntity);
+        const parcel = await parcels.save(parcels.create(parcelData));
+        await manager.getRepository(AuditLogEntity).save(manager.getRepository(AuditLogEntity).create({
+          actor_id: courierId,
+          actor_role: UserRole.COURIER,
+          entity_type: 'parcel',
+          entity_id: parcel.id,
+          action: 'PARCEL_CREATED_TARIFF_PINNED',
+          old_state: null,
+          new_state: {
+            status: parcel.status,
+            tariffVersionId: basePrice.tariffVersionId,
+            tariffKey: basePrice.tariffKey,
+            packageSize,
+            basePostCost: basePrice.basePostCost,
+          },
+          transaction_id: parcel.id,
+          correlation_id: `parcel-create:${parcel.id}`,
+          metadata: { source: 'parcel-creation', snapshotPolicy: 'tariff-version-pinned' },
+        }));
+        return parcel;
+      });
+    }
+    const parcel = this.repo.create(parcelData);
     return this.repo.save(parcel);
   }
 
