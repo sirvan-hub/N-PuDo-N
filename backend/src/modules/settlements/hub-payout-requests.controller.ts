@@ -43,6 +43,13 @@ export class HubPayoutRequestsController {
     return this.payoutRequests.listForHub(hubId, actor);
   }
 
+  @Get('payout-requests')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'List pending courier and hub payout requests for administrator review' })
+  listQueue(@CurrentUser() actor: UserPayload) {
+    return this.payoutRequests.listPendingPayouts(actor);
+  }
+
   @Patch('payout-requests/:requestId/review')
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Approve or reject a hub payout request; approval does not execute a transfer' })
