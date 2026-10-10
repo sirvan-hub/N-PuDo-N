@@ -250,7 +250,7 @@ test('wallet bucket mutations are atomic, idempotent, and prevent overdrafts', a
     assert.equal(finalResult.balance, 925);
     assert.equal(finalResult.pendingBalance, 600);
     assert.equal(finalResult.blockedBalance, 350);
-    assert.equal(finalResult.totalEarned, 0);
+    assert.equal(finalResult.totalEarned, 400);
 
     await assert.rejects(
       service.debit(userId, 926, `overdraft-${suffix}`),
