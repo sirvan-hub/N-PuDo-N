@@ -19,6 +19,7 @@ export const MAX_EVIDENCE_BYTES = 10 * 1024 * 1024;
 export const SIGNED_EVIDENCE_URL_TTL_SECONDS = 60;
 
 export enum EvidenceCategory {
+  LABEL_IMAGE = 'LABEL_IMAGE',
   ENTRY_FEE_RECEIPT = 'ENTRY_FEE_RECEIPT',
   COURIER_HANDOVER = 'COURIER_HANDOVER',
   HUB_RECEIPT = 'HUB_RECEIPT',
@@ -111,6 +112,7 @@ export class EvidenceStorageService {
 
   private assertCategoryRole(category: EvidenceCategory, role: UserRole) {
     const allowedRoles: Record<EvidenceCategory, UserRole> = {
+      [EvidenceCategory.LABEL_IMAGE]: UserRole.COURIER,
       [EvidenceCategory.ENTRY_FEE_RECEIPT]: UserRole.RECIPIENT,
       [EvidenceCategory.COURIER_HANDOVER]: UserRole.COURIER,
       [EvidenceCategory.HUB_RECEIPT]: UserRole.HUB_OWNER,
