@@ -50,6 +50,20 @@ export class PricingService {
     return rows[0];
   }
 
+  private async getTariffById(versionId: string) {
+    if (!this.dataSource) throw new BadRequestException('Tariff database is unavailable');
+    const postgres = this.dataSource.options.type === 'postgres';
+    const rows = await this.dataSource.query(
+      `SELECT id, version_key, small_base_amount, medium_base_amount, large_base_amount,
+              under_12h_percent, from_12_to_24h_percent, additional_started_24h_percent,
+              expiry_hours, rounding_mode
+         FROM tariff_versions WHERE id = ${postgres ? '$1' : '?'} LIMIT 1`,
+      [versionId],
+    );
+    if (rows.length !== 1) throw new BadRequestException('The parcel tariff version is unavailable');
+    return rows[0];
+  }
+
   async resolveBaseCost(packageSize: string, now: Date = new Date()) {
     const tariff = await this.getActiveTariff(now);
     const size = String(packageSize || '').toUpperCase();
@@ -61,7 +75,9 @@ export class PricingService {
   }
 
   async calculateWithActiveTariff(parcel: any, now: Date = new Date()) {
-    const tariff = await this.getActiveTariff(now);
+    const tariff = parcel?.tariff_version_id
+      ? await this.getTariffById(String(parcel.tariff_version_id))
+      : await this.getActiveTariff(now);
     const size = String(parcel?.package_size || '').toUpperCase();
     const amounts: Record<string, unknown> = {
       SMALL: tariff.small_base_amount, MEDIUM: tariff.medium_base_amount, LARGE: tariff.large_base_amount,
@@ -125,14 +141,14 @@ export class PricingService {
         clockStartsAt: 'delivered_to_hub_at',
         actualElapsedHours: Math.round(elapsed * 100) / 100,
         billableElapsedHours: elapsedHours,
-        under12HoursPercent: 20,
-        from12To24HoursPercent: 40,
+        under12HoursPercent: under12 * 100,
+        from12To24HoursPercent: from12To24 * 100,
         additionalStarted24HoursPercent: additionalStarted24 * 100,
         maxBillableHours: expiryHours,
         appliedPercentage: pct * 100,
         basePostCost,
         calculatedFee: fee,
-        roundingMode: 'CEIL',
+        roundingMode: tariff?.roundingMode ?? tariff?.rounding_mode ?? 'CEIL',
         currencyUnit: 'TOMAN',
         calculatedAt: currentTime.toISOString(),
         capReached: elapsed >= expiryHours,
