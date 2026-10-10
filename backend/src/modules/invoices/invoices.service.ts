@@ -1,7 +1,6 @@
 import { BadRequestException, Injectable, Optional } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { InvoiceEntity, PaymentStatus } from '../../database/entities/invoice.entity';
 import { HubShareSettingEntity } from '../../database/entities/hub-share-setting.entity';
 
@@ -12,9 +11,12 @@ export class InvoicesService {
     @Optional() @InjectDataSource() private readonly dataSource?: DataSource,
   ) {}
 
-  private async getCurrentHubSharePercent(): Promise<number> {
-    if (!this.dataSource) return 30;
-    const setting = await this.dataSource.getRepository(HubShareSettingEntity).findOne({ where: { id: 'default' } });
+  private async getCurrentHubSharePercent(manager?: EntityManager): Promise<number> {
+    const settings = manager
+      ? manager.getRepository(HubShareSettingEntity)
+      : this.dataSource?.getRepository(HubShareSettingEntity);
+    if (!settings) return 30;
+    const setting = await settings.findOne({ where: { id: 'default' } });
     const percentage = setting ? Number(setting.percentage) : 30;
     if (!Number.isFinite(percentage) || percentage < 0 || percentage > 100) {
       throw new Error('Configured hub share percentage is outside the supported range');
@@ -22,16 +24,19 @@ export class InvoicesService {
     return percentage;
   }
 
-  async create(parcel: any, pricing: any) {
+  async create(parcel: any, pricing: any, manager?: EntityManager) {
     if (!parcel?.recipient_id || !parcel?.current_hub_id) {
       throw new BadRequestException('Invoice requires a resolved recipient and current hub');
     }
-    const hubSharePercent = await this.getCurrentHubSharePercent();
+    const invoiceRepo = manager ? manager.getRepository(InvoiceEntity) : this.repo;
+    const existing = await invoiceRepo.findOne({ where: { parcel_id: parcel.id } });
+    if (existing) return existing;
+
+    const hubSharePercent = await this.getCurrentHubSharePercent(manager);
     const totalAmount = Number(pricing.calculatedFee);
     if (!Number.isSafeInteger(totalAmount) || totalAmount < 0) {
       throw new BadRequestException('Invoice amount must be a non-negative whole currency unit');
     }
-    // Floor to a whole toman so the hub share never exceeds the configured percentage.
     const hubOwnerShare = Math.floor(totalAmount * hubSharePercent / 100);
     const snapshot = {
       snapshotVersion: 1,
@@ -42,8 +47,8 @@ export class InvoicesService {
       currencyUnit: 'TOMAN',
       capturedAt: new Date().toISOString(),
     };
-    const invoice = this.repo.create({
-      invoice_number: 'INV-' + Date.now(),
+    const invoice = invoiceRepo.create({
+      invoice_number: 'INV-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
       parcel_id: parcel.id, recipient_id: parcel.recipient_id, hub_id: parcel.current_hub_id,
       base_post_cost: pricing.basePostCost, elapsed_hours: pricing.elapsedHours,
       fee_percentage: pricing.feePercentage * 100, calculated_fee: totalAmount,
@@ -51,6 +56,6 @@ export class InvoicesService {
       hub_owner_share: hubOwnerShare, platform_fee: 0,
       hub_share_percent: hubSharePercent, hub_share_snapshot: snapshot,
     });
-    return this.repo.save(invoice);
+    return invoiceRepo.save(invoice);
   }
 }
