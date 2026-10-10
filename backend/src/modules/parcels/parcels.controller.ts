@@ -1,26 +1,34 @@
-import { Controller, Post, Get, Body, Param, HttpCode, HttpStatus } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBody, ApiResponse } from '@nestjs/swagger';
+import { Controller, Post, Get, Body, Param, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBody, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { ParcelsService } from './parcels.service';
 import { CreateParcelDto } from './dto/create-parcel.dto';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { UserPayload, UserRole } from '../../common/interfaces/user-payload.interface';
 
 @ApiTags('Parcels')
-@Controller('parcels')  // ← مسیر: /v1/parcels (چون global prefix = 'v1')
+@Controller('parcels')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@ApiBearerAuth()
 export class ParcelsController {
   constructor(private readonly parcelsService: ParcelsService) {}
 
-  @Post()  // ← POST /v1/parcels
+  @Post()
+  @Roles(UserRole.COURIER)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a new parcel' })
   @ApiBody({ type: CreateParcelDto })
   @ApiResponse({ status: 201, description: 'Parcel created' })
-  async create(@Body() dto: CreateParcelDto) {
-    return this.parcelsService.create(dto, 'test-courier-id');
+  async create(@Body() dto: CreateParcelDto, @CurrentUser('sub') courierId: string) {
+    return this.parcelsService.create(dto, courierId);
   }
 
-  @Get(':id')  // ← GET /v1/parcels/:id
-  @ApiOperation({ summary: 'Get parcel by ID' })
+  @Get(':id')
+  @ApiOperation({ summary: 'Get parcel by ID (owner, recipient, or administrator)' })
   @ApiResponse({ status: 200, description: 'Parcel data' })
-  async getById(@Param('id') id: string) {
-    return this.parcelsService.getById(id);
+  async getById(@Param('id') id: string, @CurrentUser() user: UserPayload) {
+    return this.parcelsService.getById(id, user);
   }
 }
