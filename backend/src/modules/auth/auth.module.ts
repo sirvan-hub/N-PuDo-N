@@ -7,6 +7,7 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from '../../common/guards/jwt.strategy';
 import { UserEntity } from '../../database/entities/user.entity';
+import { requireJwtSecret } from '../../config/runtime-config';
 
 @Module({
   imports: [
@@ -14,8 +15,7 @@ import { UserEntity } from '../../database/entities/user.entity';
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
-        // Fail startup if the secret is absent; never sign tokens with a fallback.
-        secret: configService.getOrThrow<string>('JWT_SECRET'),
+        secret: requireJwtSecret(configService.get<string>('JWT_SECRET')),
         signOptions: { expiresIn: '24h' },
       }),
       inject: [ConfigService],
