@@ -615,6 +615,52 @@ export default function App() {
             </section>
           )}
           {normalizedRole === 'RECIPIENT' && workspaceMessage && <p className="feedback notice" role="status">{workspaceMessage}</p>}
+
+          {(normalizedRole === 'COURIER' || normalizedRole === 'HUB_OWNER') && (
+            <section className="workflow-card payout-card" aria-labelledby="payout-heading">
+              <span className="eyebrow">WALLET & SETTLEMENT</span>
+              <h2 id="payout-heading">تنظیمات و درخواست تسویه</h2>
+              <p className="muted">دوره تسویه را انتخاب کنید. برای امنیت، شماره کامل کارت یا شبا را وارد نکنید؛ فقط مرجع مقصدِ تأییدشده و چهار رقم پایانی ثبت می‌شود.</p>
+              <form onSubmit={savePayoutPreference} className="invitation-form">
+                <label htmlFor="payoutFrequency">دوره ترجیحی تسویه</label>
+                <select id="payoutFrequency" value={payoutFrequency} onChange={(event) => setPayoutFrequency(event.target.value as 'WEEKLY' | 'MONTHLY')}>
+                  <option value="WEEKLY">هفتگی</option><option value="MONTHLY">ماهانه</option>
+                </select>
+                <label htmlFor="payoutDestinationToken">شناسه مرجع مقصد پرداخت (توکن، نه شماره حساب)</label>
+                <input id="payoutDestinationToken" dir="ltr" value={payoutDestinationToken} onChange={(event) => setPayoutDestinationToken(event.target.value)} maxLength={160} placeholder="opaque-provider-reference" />
+                <label htmlFor="payoutDestinationLast4">چهار رقم پایانی مقصد</label>
+                <input id="payoutDestinationLast4" dir="ltr" inputMode="numeric" pattern="[0-9]{4}" value={payoutDestinationLast4} onChange={(event) => setPayoutDestinationLast4(event.target.value.replace(/\D/g, '').slice(0, 4))} maxLength={4} />
+                <button className="primary-button" type="submit" disabled={payoutLoading}>{payoutLoading ? 'در حال ذخیره…' : 'ذخیره تنظیمات تسویه'}</button>
+              </form>
+              <p className={payoutDestinationVerified ? 'feedback notice' : 'feedback error'} role="status">
+                {payoutDestinationVerified ? 'مقصد تسویه توسط مدیر بررسی شده است.' : payoutDestinationConfigured ? 'مقصد ثبت شده اما هنوز تأیید مدیر را ندارد؛ امکان درخواست تسویه بسته است.' : 'ابتدا شناسه مرجع مقصد را ثبت کنید؛ درخواست تسویه تا تأیید مدیر غیرفعال است.'}
+              </p>
+              {normalizedRole === 'HUB_OWNER' && <>
+                <label htmlFor="payoutHubId">شناسه هاب شما</label>
+                <input id="payoutHubId" dir="ltr" value={payoutHubId} onChange={(event) => setPayoutHubId(event.target.value.trim())} placeholder="hub UUID" />
+              </>}
+              <form onSubmit={requestPayout} className="invitation-form">
+                <label htmlFor="payoutAmount">مبلغ درخواستی (تومان)</label>
+                <input id="payoutAmount" type="number" min="1" max="2147483647" step="1" inputMode="numeric" value={payoutAmount} onChange={(event) => setPayoutAmount(event.target.value)} required />
+                <button className="primary-button" type="submit" disabled={payoutLoading || !payoutDestinationVerified}>{payoutLoading ? 'در حال ثبت…' : 'ثبت درخواست تسویه'}</button>
+              </form>
+              <button className="outline-button" type="button" disabled={payoutLoading} onClick={() => void loadPayoutHistory()}>به‌روزرسانی تاریخچه تسویه</button>
+              {payoutError && <p className="feedback error" role="alert">{payoutError}</p>}
+              {payoutMessage && <p className="feedback notice" role="status">{payoutMessage}</p>}
+              {payoutHistory.length > 0 && <div className="payout-history">
+                <h3>تاریخچه درخواست‌ها</h3>
+                {payoutHistory.map((item) => <article className="payout-history-item" key={item.requestId}>
+                  <strong>{item.amount.toLocaleString('fa-IR')} تومان</strong>
+                  <span>{item.status}</span>
+                  <small dir="ltr">{item.requestId}</small>
+                  {item.reviewNote && <small>یادداشت مدیر: {item.reviewNote}</small>}
+                  {item.transferReference && <small>مرجع انتقال تأییدشده: <bdi dir="ltr">{item.transferReference}</bdi></small>}
+                </article>)}
+              </div>}
+              <small className="muted">تأیید مدیر فقط تأیید داخلی مقصد یا درخواست است؛ هیچ انتقال بانکی در این نسخه اجرا نمی‌شود. ترجیح هفتگی/ماهانه ذخیره می‌شود، اما زمان‌بندی خودکار هنوز فعال نیست.</small>
+            </section>
+          )}
+
           <h2 className="section-heading">پنل کاری شما</h2>
           <div className="panel-grid">
             {Object.entries(roleInfo).map(([key, item]) => {
