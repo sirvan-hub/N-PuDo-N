@@ -7,6 +7,9 @@ const { ParcelEntity } = require('../dist/database/entities/parcel.entity');
 const { CustodyTransferEntity, CustodyTransferStatus, CustodyTransferType } = require('../dist/database/entities/custody-transfer.entity');
 const { HubEntity } = require('../dist/database/entities/hub.entity');
 const { UserEntity } = require('../dist/database/entities/user.entity');
+const { RevenueAllocationEntity } = require('../dist/database/entities/revenue-allocation.entity');
+const { WalletEntity } = require('../dist/database/entities/wallet.entity');
+const { WalletTransactionEntity } = require('../dist/database/entities/wallet-transaction.entity');
 const { InvoiceEntity, PaymentStatus } = require('../dist/database/entities/invoice.entity');
 const { SettlementTransactionEntity, SettlementTransactionType } = require('../dist/database/entities/settlement-transaction.entity');
 const { IdempotencyRecordEntity } = require('../dist/database/entities/idempotency-record.entity');
@@ -24,7 +27,7 @@ test('PostgreSQL serializes concurrent payment reconciliation and parcel release
   const dataSource = new DataSource(createDatabaseOptions());
   await dataSource.initialize();
   const suffix = randomUUID().replace(/-/g, '').slice(0, 12);
-  let owner, recipient, admin, hub, parcel, invoice;
+  let owner, recipient, admin, courier, hub, parcel, invoice;
 
   try {
     owner = await dataSource.getRepository(UserEntity).save(dataSource.getRepository(UserEntity).create({
@@ -36,6 +39,9 @@ test('PostgreSQL serializes concurrent payment reconciliation and parcel release
     admin = await dataSource.getRepository(UserEntity).save(dataSource.getRepository(UserEntity).create({
       phone: `+1996${suffix.slice(0, 10)}`, full_name: 'Concurrency Admin', role: UserRole.ADMIN,
     }));
+    courier = await dataSource.getRepository(UserEntity).save(dataSource.getRepository(UserEntity).create({
+      phone: `+1995${suffix.slice(0, 10)}`, full_name: 'Concurrency Courier', role: UserRole.COURIER,
+    }));
     hub = await dataSource.getRepository(HubEntity).save(dataSource.getRepository(HubEntity).create({
       owner_id: owner.id, name: `Concurrency Hub ${suffix}`, address: 'CI address', city: 'CI',
       operating_hours: {}, qr_code_hash: `qr-${suffix}`,
@@ -43,7 +49,7 @@ test('PostgreSQL serializes concurrent payment reconciliation and parcel release
     parcel = await dataSource.getRepository(ParcelEntity).save(dataSource.getRepository(ParcelEntity).create({
       tracking_code: `CC-${suffix}`, recipient_phone: recipient.phone, recipient_name: recipient.full_name,
       recipient_address: 'CI address', package_size: 'SMALL', base_post_cost: 18000,
-      recipient_id: recipient.id, proposed_hub_id: hub.id, current_hub_id: hub.id,
+      recipient_id: recipient.id, courier_id: courier.id, proposed_hub_id: hub.id, current_hub_id: hub.id,
       status: ParcelStatus.READY_FOR_CUSTOMER, delivered_to_hub_at: new Date(),
     }));
     invoice = await dataSource.getRepository(InvoiceEntity).save(dataSource.getRepository(InvoiceEntity).create({
