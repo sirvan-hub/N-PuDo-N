@@ -58,4 +58,4 @@ jobs:
       - name: Build backend
         run: npm run build
       - name: Database configuration and PostgreSQL smoke tests
-        run: node --test test/database-options.test.cjs test/postgres-smoke.cjs
+        run: node --test test/database-options.test.cjs test/postgres-smoke.cjs test/pricing-service.test.cjs
