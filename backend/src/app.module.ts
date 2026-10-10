@@ -9,6 +9,7 @@ import { HubsModule } from './modules/hubs/hubs.module';
 import { PricingModule } from './modules/pricing/pricing.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
 import { WalletsModule } from './modules/wallets/wallets.module';
+import { SettlementsModule } from './modules/settlements/settlements.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { WalletsModule } from './modules/wallets/wallets.module';
     PricingModule,
     InvoicesModule,
     WalletsModule,
+    SettlementsModule,
   ],
 })
 export class AppModule {};
