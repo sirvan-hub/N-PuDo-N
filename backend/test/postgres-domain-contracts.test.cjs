@@ -245,7 +245,7 @@ test('wallet bucket mutations are atomic, idempotent, and prevent overdrafts', a
     await service.releaseHold(userId, 50, `release-hold-${suffix}`);
     await service.creditPending(userId, 400, `pending-credit-${suffix}`);
     await service.releasePending(userId, 100, `release-pending-${suffix}`);
-    const finalResult = await service.debit(userId, 25, `debit-${suffix}');
+    const finalResult = await service.debit(userId, 25, `debit-${suffix}`);
 
     assert.equal(finalResult.balance, 925);
     assert.equal(finalResult.pendingBalance, 600);
