@@ -6,12 +6,13 @@ import { ParcelEntity } from '../../database/entities/parcel.entity';
 import { HubEntity } from '../../database/entities/hub.entity';
 import { UserEntity } from '../../database/entities/user.entity';
 import { ParcelInvitationEntity } from '../../database/entities/parcel-invitation.entity';
+import { NetworkEntryChargeEntity } from '../../database/entities/network-entry-charge.entity';
 import { PricingModule } from '../pricing/pricing.module';
 import { InvoicesModule } from '../invoices/invoices.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([ParcelEntity, HubEntity, UserEntity, ParcelInvitationEntity]), PricingModule, InvoicesModule, NotificationsModule],
+  imports: [TypeOrmModule.forFeature([ParcelEntity, HubEntity, UserEntity, ParcelInvitationEntity, NetworkEntryChargeEntity]), PricingModule, InvoicesModule, NotificationsModule],
   controllers: [ParcelsController],
   providers: [ParcelsService],
   exports: [ParcelsService],
