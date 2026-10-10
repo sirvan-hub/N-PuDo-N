@@ -32,6 +32,12 @@ class VerifyEntryFeePaymentDto {
   provider_reference: string;
 }
 
+class RejectEntryFeePaymentDto {
+  @IsString()
+  @Length(1, 300)
+  reason: string;
+}
+
 class ConfirmCustomerReleaseDto {
   @IsString()
   @Matches(/^\d{6}$/)
@@ -86,6 +92,21 @@ export class ParcelsController {
   @ApiOperation({ summary: 'Submit a private receipt reference for the separate Pudo-N network-entry fee' })
   async submitNetworkEntryReceipt(@Param('id') id: string, @Body() body: CustodyEvidenceDto, @CurrentUser() user: UserPayload) {
     return this.parcelsService.submitNetworkEntryReceipt(id, body.evidence_ref, user);
+  }
+
+  @Get('entry-fee-charges/pending-review')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'List network-entry receipts awaiting administrator reconciliation' })
+  async listEntryFeePaymentsForReview() {
+    return this.parcelsService.listEntryFeePaymentsForReview();
+  }
+
+  @Post('entry-fee-charges/:id/reject')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Reject an entry-fee receipt with an auditable reason so the recipient can resubmit' })
+  async rejectNetworkEntryPayment(@Param('id') id: string, @Body() body: RejectEntryFeePaymentDto, @CurrentUser() user: UserPayload) {
+    return this.parcelsService.rejectNetworkEntryPayment(id, body.reason, user);
   }
 
   @Post('entry-fee-charges/:id/verify-payment')
