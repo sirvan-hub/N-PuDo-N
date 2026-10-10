@@ -11,6 +11,9 @@ export enum SettlementTransactionType {
 
 export enum SettlementTransactionStatus {
   PENDING = 'PENDING',
+  REQUESTED = 'REQUESTED',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
   COMPLETED = 'COMPLETED',
   FAILED = 'FAILED',
   CANCELLED = 'CANCELLED',
@@ -23,7 +26,12 @@ export class SettlementTransactionEntity {
   @Column({ type: databaseUuidColumnType, nullable: true }) parcel_id: string;
   @Column({ type: databaseUuidColumnType, nullable: true }) invoice_id: string;
   @Column({ type: databaseUuidColumnType, nullable: true }) wallet_id: string;
+  @Column({ type: databaseUuidColumnType, nullable: true }) hub_id: string;
   @Column({ type: databaseUuidColumnType, nullable: true }) actor_id: string;
+  @Column({ type: databaseUuidColumnType, nullable: true }) requested_by: string;
+  @Column({ type: databaseUuidColumnType, nullable: true }) reviewed_by: string;
+  @Column({ type: databaseDateColumnType, nullable: true }) reviewed_at: Date;
+  @Column({ type: 'varchar', length: 500, nullable: true }) review_note: string;
   @Column({ type: 'varchar', length: 24 }) transaction_type: SettlementTransactionType;
   @Column({ type: 'varchar', length: 16, default: SettlementTransactionStatus.PENDING }) status: SettlementTransactionStatus;
   @Column({ type: 'bigint' }) amount: string;
