@@ -72,6 +72,7 @@ test('domain financial contracts enforce invoice states, idempotency, and custod
       [`user:${user.id}`, `create-${suffix}`, hash],
     )).rows[0];
 
+    await client.query('SAVEPOINT duplicate_idempotency_key');
     await assert.rejects(
       client.query(
         `INSERT INTO idempotency_records
@@ -81,6 +82,7 @@ test('domain financial contracts enforce invoice states, idempotency, and custod
       ),
       (error) => error.code === '23505',
     );
+    await client.query('ROLLBACK TO SAVEPOINT duplicate_idempotency_key');
     // The same textual key is allowed for a distinct operation scope.
     await client.query(
       `INSERT INTO idempotency_records
@@ -106,6 +108,7 @@ test('domain financial contracts enforce invoice states, idempotency, and custod
        VALUES ($1, $2, $3, 'EARNING_CREDIT', 'AVAILABLE', 5000, 5000)`,
       [wallet.id, user.id, walletIdem.id],
     );
+    await client.query('SAVEPOINT invalid_ledger_balance');
     await assert.rejects(
       client.query(
         `INSERT INTO wallet_transactions
@@ -115,6 +118,7 @@ test('domain financial contracts enforce invoice states, idempotency, and custod
       ),
       (error) => error.code === '23514',
     );
+    await client.query('ROLLBACK TO SAVEPOINT invalid_ledger_balance');
 
     const salt = '1'.repeat(32);
     const codeHash = '2'.repeat(64);
@@ -124,6 +128,7 @@ test('domain financial contracts enforce invoice states, idempotency, and custod
        VALUES ($1, $2, $2, 'COURIER_TO_HUB', 'PENDING', $3, $4, now() + interval '5 minutes')`,
       [parcel.id, hub.id, salt, codeHash],
     );
+    await client.query('SAVEPOINT invalid_custody_hash');
     await assert.rejects(
       client.query(
         `INSERT INTO custody_transfers
@@ -133,6 +138,7 @@ test('domain financial contracts enforce invoice states, idempotency, and custod
       ),
       (error) => error.code === '23514',
     );
+    await client.query('ROLLBACK TO SAVEPOINT invalid_custody_hash');
 
     const ledgerCount = await client.query('SELECT count(*)::int AS count FROM wallet_transactions WHERE wallet_id = $1', [wallet.id]);
     assert.equal(ledgerCount.rows[0].count, 1);
