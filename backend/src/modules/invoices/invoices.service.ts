@@ -54,6 +54,13 @@ export class InvoicesService {
       fee_percentage: pricing.feePercentage * 100, calculated_fee: totalAmount,
       total_amount: totalAmount, status: PaymentStatus.PENDING,
       hub_owner_share: hubOwnerShare, platform_fee: 0,
+      tariff_snapshot: pricing.tariffSnapshot ?? {
+        snapshotVersion: 1, tariffKey: 'PUDO-N-TARIFF-168H-V1',
+        basePostCost: pricing.basePostCost, elapsedHours: pricing.elapsedHours,
+        feePercentage: pricing.feePercentage * 100, calculatedFee: totalAmount,
+        currencyUnit: 'TOMAN',
+      },
+      tariff_version_id: null,
       hub_share_percent: hubSharePercent, hub_share_snapshot: snapshot,
     });
     return invoiceRepo.save(invoice);
