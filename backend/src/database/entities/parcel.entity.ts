@@ -19,8 +19,14 @@ export class ParcelEntity {
   @Column()
   recipient_address: string;
 
+  @Column({ type: 'varchar', length: 10, default: 'MEDIUM' })
+  package_size: 'SMALL' | 'MEDIUM' | 'LARGE';
+
   @Column('int')
   base_post_cost: number;
+
+  @Column({ type: databaseDateColumnType, nullable: true })
+  expired_at?: Date;
 
   @Column({ type: databaseUuidColumnType, nullable: true })
   proposed_hub_id: string;
