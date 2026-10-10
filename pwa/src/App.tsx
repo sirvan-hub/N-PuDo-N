@@ -397,6 +397,9 @@ export default function App() {
                 <article className={`notification-card ${item.read_at ? 'read' : 'unread'}`} key={item.id}>
                   <div className="notification-card-top"><strong>{item.title}</strong><time>{new Date(item.created_at).toLocaleString('fa-IR')}</time></div>
                   <p>{item.body}</p>
+                  {item.category === 'PARCEL_INVITATION_RESPONSE' && item.reference_id && normalizedRole === 'COURIER' && (
+                    <small className="notification-expiry">شناسه دعوت برای ثبت مرسوله: <bdi dir="ltr">{item.reference_id}</bdi></small>
+                  )}
                   {item.expires_at && <small className="notification-expiry">اعتبار تا {new Date(item.expires_at).toLocaleTimeString('fa-IR')}</small>}
                   {item.category === 'PARCEL_INVITATION' && item.reference_id && !item.read_at && normalizedRole === 'RECIPIENT' && (
                     <div className="invitation-actions">
