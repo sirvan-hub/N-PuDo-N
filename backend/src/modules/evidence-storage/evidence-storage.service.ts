@@ -52,13 +52,15 @@ export class EvidenceStorageService {
     this.assertCategoryRole(category, actor.role);
     const extension = this.validateImage(file);
     const path = `parcels/${parcel.id}/${category.toLowerCase()}/${randomUUID()}.${extension}`;
+    const uploadBody = new ArrayBuffer(file.buffer.byteLength);
+    new Uint8Array(uploadBody).set(file.buffer);
     await this.storageRequest(`object/${this.bucket()}/${path}`, {
       method: 'POST',
       headers: {
         'Content-Type': file.mimetype,
         'x-upsert': 'false',
       },
-      body: file.buffer,
+      body: uploadBody,
     });
     return {
       evidence_ref: `pudo-evidence://${path}`,
@@ -127,7 +129,7 @@ export class EvidenceStorageService {
     if (!file || !Buffer.isBuffer(file.buffer) || file.size <= 0 || file.size > MAX_EVIDENCE_BYTES) {
       throw new BadRequestException('Image must be between 1 byte and 10 MB');
     }
-    if (!Object.hasOwn(MIME_EXTENSIONS, file.mimetype)) {
+    if (!Object.prototype.hasOwnProperty.call(MIME_EXTENSIONS, file.mimetype)) {
       throw new BadRequestException('Only JPEG, PNG, and WebP images are accepted');
     }
     const bytes = file.buffer;
