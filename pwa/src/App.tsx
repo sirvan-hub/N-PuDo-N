@@ -3,7 +3,7 @@ import { FormEvent, useEffect, useState } from 'react';
 type UserRole = 'COURIER' | 'HUB_OWNER' | 'RECIPIENT' | 'ADMIN' | 'SUPER_ADMIN' | string;
 type AuthUser = { sub?: string; id?: string; username?: string; phone?: string; role: UserRole; is_verified?: boolean };
 type AuthResponse = { access_token: string; user: AuthUser };
-type AppNotification = { id: string; category: string; title: string; body: string; expires_at?: string | null; read_at?: string | null; created_at: string };
+type AppNotification = { id: string; category: string; title: string; body: string; reference_type?: string | null; reference_id?: string | null; expires_at?: string | null; read_at?: string | null; created_at: string };
 
 const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\/$/, '');
 
@@ -35,7 +35,7 @@ export default function App() {
   const [session, setSession] = useState<{ token: string; user: AuthUser } | null>(null);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [notificationError, setNotificationError] = useState('');
-  const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);\n  const [invitationPhone, setInvitationPhone] = useState('');\n  const [workspaceBusy, setWorkspaceBusy] = useState(false);\n  const [workspaceMessage, setWorkspaceMessage] = useState('');
 
   useEffect(() => {
     if (!session || !apiBase) {
@@ -157,6 +157,54 @@ export default function App() {
     }
   }
 
+  async function submitInvitation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!session || !apiBase) return;
+    setWorkspaceBusy(true);
+    setWorkspaceMessage('');
+    setError('');
+    try {
+      const response = await fetch(`${apiBase}/parcels/invitations`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recipient_phone: invitationPhone.trim() }),
+      });
+      const body: unknown = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(getApiError(body, `ارسال دعوت ناموفق بود (HTTP ${response.status}).`));
+      setInvitationPhone('');
+      setWorkspaceMessage('دعوت برای گیرنده ارسال شد. تا تأیید او، ثبت رسمی مرسوله انجام نمی‌شود.');
+    } catch (cause) {
+      setWorkspaceMessage(cause instanceof Error ? cause.message : 'ارسال دعوت ناموفق بود.');
+    } finally {
+      setWorkspaceBusy(false);
+    }
+  }
+
+  async function respondToInvitation(notification: AppNotification, accepted: boolean) {
+    if (!session || !apiBase || !notification.reference_id) return;
+    setWorkspaceBusy(true);
+    setWorkspaceMessage('');
+    try {
+      const response = await fetch(`${apiBase}/parcels/invitations/${encodeURIComponent(notification.reference_id)}/respond`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accepted }),
+      });
+      const body: unknown = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(getApiError(body, `ثبت پاسخ دعوت ناموفق بود (HTTP ${response.status}).`));
+      setNotifications((items) => items.map((item) => item.id === notification.id
+        ? { ...item, read_at: new Date().toISOString() }
+        : item));
+      setWorkspaceMessage(accepted
+        ? 'دعوت تأیید شد. سفیر اکنون مجاز است اطلاعات مرسوله را ثبت کند.'
+        : 'دعوت رد شد. مرسوله نباید در شبکه Pudo-N ثبت شود.');
+    } catch (cause) {
+      setWorkspaceMessage(cause instanceof Error ? cause.message : 'ثبت پاسخ دعوت ناموفق بود.');
+    } finally {
+      setWorkspaceBusy(false);
+    }
+  }
+
   function signOut() {
     setSession(null);
     setUsername('');
@@ -244,11 +292,31 @@ export default function App() {
                   <div className="notification-card-top"><strong>{item.title}</strong><time>{new Date(item.created_at).toLocaleString('fa-IR')}</time></div>
                   <p>{item.body}</p>
                   {item.expires_at && <small className="notification-expiry">اعتبار تا {new Date(item.expires_at).toLocaleTimeString('fa-IR')}</small>}
+                  {item.category === 'PARCEL_INVITATION' && item.reference_id && !item.read_at && normalizedRole === 'RECIPIENT' && (
+                    <div className="invitation-actions">
+                      <button className="primary-button" type="button" disabled={workspaceBusy} onClick={() => void respondToInvitation(item, true)}>تأیید دعوت</button>
+                      <button className="outline-button" type="button" disabled={workspaceBusy} onClick={() => void respondToInvitation(item, false)}>رد دعوت</button>
+                    </div>
+                  )}
                   {!item.read_at && <button className="text-button" type="button" onClick={() => void markNotificationRead(item.id)}>علامت‌گذاری به‌عنوان خوانده‌شده</button>}
                 </article>
               ))}
             </div>}
           </section>
+          {normalizedRole === 'COURIER' && (
+            <section className="workflow-card" aria-labelledby="invite-heading">
+              <span className="eyebrow">RECIPIENT CONSENT</span>
+              <h2 id="invite-heading">دعوت گیرنده پیش از ثبت مرسوله</h2>
+              <p className="muted">شماره گیرنده ثبت‌شده را وارد کنید. تا زمانی که گیرنده دعوت را تأیید نکند، ثبت رسمی مرسوله مجاز نیست.</p>
+              <form onSubmit={submitInvitation} className="invitation-form">
+                <label htmlFor="invitationPhone">شماره موبایل گیرنده</label>
+                <input id="invitationPhone" inputMode="tel" dir="ltr" placeholder="09123456789" value={invitationPhone} onChange={(event) => setInvitationPhone(event.target.value.replace(/\s/g, ''))} pattern="\+?\d{8,15}" required />
+                <button className="primary-button" type="submit" disabled={workspaceBusy}>{workspaceBusy ? 'در حال ارسال…' : 'ارسال دعوت به مشتری'}</button>
+              </form>
+              {workspaceMessage && <p className="feedback notice" role="status">{workspaceMessage}</p>}
+            </section>
+          )}
+          {normalizedRole === 'RECIPIENT' && workspaceMessage && <p className="feedback notice" role="status">{workspaceMessage}</p>}
           <h2 className="section-heading">پنل کاری شما</h2>
           <div className="panel-grid">
             {Object.entries(roleInfo).map(([key, item]) => {
