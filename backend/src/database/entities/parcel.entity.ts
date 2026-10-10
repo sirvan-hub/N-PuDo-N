@@ -58,6 +58,18 @@ export class ParcelEntity {
   @Column({ nullable: true })
   description?: string;
 
+  @Column({ type: 'varchar', length: 512, nullable: true })
+  courier_handover_evidence_ref?: string;
+
+  @Column({ type: databaseDateColumnType, nullable: true })
+  courier_handover_at?: Date;
+
+  @Column({ type: 'varchar', length: 512, nullable: true })
+  hub_receipt_evidence_ref?: string;
+
+  @Column({ type: databaseDateColumnType, nullable: true })
+  hub_receipt_confirmed_at?: Date;
+
   @Column({ type: databaseDateColumnType, nullable: true })
   delivered_to_hub_at?: Date;
 
