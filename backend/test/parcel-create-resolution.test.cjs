@@ -74,6 +74,7 @@ test('hub owner receipt confirmation atomically records custody and creates an i
       if (entity === ParcelEntity) return { findOne: async () => parcel, save: async (value) => value };
       if (entity === HubEntity) return { findOne: async ({ where }) => where.owner_id === 'owner-1' ? hub : null };
       if (entity === InvoiceEntity) return invoiceRepo;
+      if (entity === AuditLogEntity) return { create: (value) => value, save: async (value) => value };
       throw new Error('Unexpected repository');
     },
   };
@@ -118,6 +119,7 @@ test('recipient PUDO request selects an active hub and advances the state machin
     getRepository(entity) {
       if (entity === ParcelEntity) return { findOne: async () => parcel, save: async (value) => value };
       if (entity === HubEntity) return { findOne: async () => hub };
+      if (entity === AuditLogEntity) return { create: (value) => value, save: async (value) => value };
       throw new Error('Unexpected repository');
     },
   };
