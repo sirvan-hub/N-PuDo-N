@@ -4,6 +4,7 @@ const { randomUUID, createHash } = require('node:crypto');
 const { DataSource } = require('typeorm');
 const { createDatabaseOptions } = require('../dist/database/database-options');
 const { ParcelEntity } = require('../dist/database/entities/parcel.entity');
+const { CustodyTransferEntity, CustodyTransferStatus, CustodyTransferType } = require('../dist/database/entities/custody-transfer.entity');
 const { HubEntity } = require('../dist/database/entities/hub.entity');
 const { UserEntity } = require('../dist/database/entities/user.entity');
 const { InvoiceEntity, PaymentStatus } = require('../dist/database/entities/invoice.entity');
@@ -44,9 +45,6 @@ test('PostgreSQL serializes concurrent payment reconciliation and parcel release
       recipient_address: 'CI address', package_size: 'SMALL', base_post_cost: 18000,
       recipient_id: recipient.id, proposed_hub_id: hub.id, current_hub_id: hub.id,
       status: ParcelStatus.READY_FOR_CUSTOMER, delivered_to_hub_at: new Date(),
-      delivery_code_hash: createHash('sha256').update('482916').digest('hex'),
-      delivery_code_expires_at: new Date(Date.now() + 5 * 60_000),
-      delivery_code_attempts: 0, delivery_code_requested_at: new Date(),
     }));
     invoice = await dataSource.getRepository(InvoiceEntity).save(dataSource.getRepository(InvoiceEntity).create({
       invoice_number: `INV-CC-${suffix}`, parcel_id: parcel.id, recipient_id: recipient.id, hub_id: hub.id,
@@ -55,6 +53,21 @@ test('PostgreSQL serializes concurrent payment reconciliation and parcel release
       hub_share_percent: 30, tariff_snapshot: { snapshotVersion: 1 }, tariff_version_id: null,
       hub_share_snapshot: { percentage: 30 },
     }));
+
+    const codeSalt = 'a'.repeat(32);
+    let custodyTransfer = await dataSource.getRepository(CustodyTransferEntity).save(
+      dataSource.getRepository(CustodyTransferEntity).create({
+        parcel_id: parcel.id,
+        from_hub_id: hub.id,
+        receiver_id: recipient.id,
+        transfer_type: CustodyTransferType.HUB_TO_RECIPIENT,
+        status: CustodyTransferStatus.PENDING,
+        code_salt: codeSalt,
+        code_hash: createHash('sha256').update(`${codeSalt}:482916`).digest('hex'),
+        expires_at: new Date(Date.now() + 5 * 60_000),
+        failed_attempts: 0,
+      }),
+    );
 
     const settlementService = new SettlementsService(dataSource);
     const paymentResults = await Promise.allSettled([
@@ -72,10 +85,6 @@ test('PostgreSQL serializes concurrent payment reconciliation and parcel release
 
     const payment = await dataSource.getRepository(InvoiceEntity).findOneByOrFail({ id: invoice.id });
     assert.equal(payment.status, PaymentStatus.PAID);
-    parcel = await dataSource.getRepository(ParcelEntity).findOneByOrFail({ id: parcel.id });
-    parcel.delivery_code_hash = createHash('sha256').update('482916').digest('hex');
-    parcel.delivery_code_expires_at = new Date(Date.now() + 5 * 60_000);
-    await dataSource.getRepository(ParcelEntity).save(parcel);
 
     const parcelService = new ParcelsService(
       dataSource.getRepository(ParcelEntity),
@@ -103,7 +112,10 @@ test('PostgreSQL serializes concurrent payment reconciliation and parcel release
       await dataSource.getRepository(SettlementTransactionEntity).delete({ invoice_id: invoice.id }).catch(() => {});
       await dataSource.getRepository(InvoiceEntity).delete({ id: invoice.id }).catch(() => {});
     }
-    if (parcel) await dataSource.getRepository(ParcelEntity).delete({ id: parcel.id }).catch(() => {});
+    if (parcel) {
+      await dataSource.getRepository(CustodyTransferEntity).delete({ parcel_id: parcel.id }).catch(() => {});
+      await dataSource.getRepository(ParcelEntity).delete({ id: parcel.id }).catch(() => {});
+    }
     if (hub) await dataSource.getRepository(HubEntity).delete({ id: hub.id }).catch(() => {});
     for (const user of [owner, recipient, admin]) {
       if (user) await dataSource.getRepository(UserEntity).delete({ id: user.id }).catch(() => {});
