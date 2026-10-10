@@ -17,7 +17,7 @@ The implementation contract is documented in [FINANCIAL_IDEMPOTENCY_CUSTODY_CONT
 
 The additive migration `1791630000001-AddDomainFinancialContracts` creates tariff versions, invoice snapshots/status constraint, idempotency records, wallet ledger, registration history, custody transfer history, settlement records, audit logs, wallet blocked balance, and parcel lifecycle columns. It backfills existing invoice pricing fields into immutable JSON snapshots and establishes opening ledger entries for nonzero available/pending wallet balances.
 
-This is schema groundwork, not a claim that the application has already implemented atomic ledger posting, idempotent API responses, tariff-version selection, payment-provider reconciliation, or custody-code verification. Those runtime behaviors remain a separate implementation slice. The initial migration remains unchanged.
+The wallet-credit service slice is now implemented: `WalletsService.credit(userId, amount, idempotencyKey)` atomically updates the wallet, appends a ledger row, and stores the idempotency result in one transaction. Concurrent same-key retries return the same result; a reused key with a different request is rejected. PostgreSQL CI verifies this with eight concurrent requests. This is not yet a public API endpoint and does not implement debit/hold/payout operations, tariff-version selection, payment-provider reconciliation, or custody-code verification. The initial migration remains unchanged.
 
 ## 2. Evidence-based gap inventory
 
