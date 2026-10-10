@@ -20,9 +20,8 @@ export class AuthService {
 
   async register(dto: RegisterDto): Promise<UserEntity> {
     const role = dto.role ?? UserRole.RECIPIENT;
-    const publicRoles = [UserRole.RECIPIENT, UserRole.COURIER, UserRole.HUB_OWNER];
-    if (!publicRoles.includes(role)) {
-      throw new BadRequestException('This role cannot be assigned through public registration');
+    if (role !== UserRole.RECIPIENT) {
+      throw new BadRequestException('Only recipient accounts can be created through public registration');
     }
 
     const exists = await this.userRepo.findOne({ where: { phone: dto.phone } });
@@ -30,7 +29,7 @@ export class AuthService {
     const user = this.userRepo.create({
       phone: dto.phone,
       full_name: dto.full_name,
-      role,
+      role: UserRole.RECIPIENT,
       national_id: dto.national_id,
     });
     return this.userRepo.save(user);
