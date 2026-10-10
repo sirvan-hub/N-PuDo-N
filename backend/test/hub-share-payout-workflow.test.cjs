@@ -37,6 +37,19 @@ test('hub share configuration records rate changes and preserves default 30%', a
     assert.equal(changed.percentage, 32.5);
     const history = await service.getHistory(10);
     assert.ok(history.some((item) => item.oldPercentage === 30 && item.newPercentage === 32.5 && item.changedBy === actor.sub));
+
+    // Concurrent updates must serialize so the audit trail forms a continuous rate history.
+    await Promise.all([
+      service.updatePercentage(31, 'concurrent CI update A', actor),
+      service.updatePercentage(33, 'concurrent CI update B', actor),
+    ]);
+    const concurrentHistory = await service.getHistory(10);
+    const concurrentRows = concurrentHistory.filter((item) => [31, 33].includes(item.newPercentage));
+    assert.equal(concurrentRows.length, 2);
+    assert.equal(concurrentRows[0].oldPercentage, concurrentRows[1].newPercentage);
+    assert.ok([31, 33].includes(concurrentRows[1].oldPercentage));
+    assert.equal(concurrentRows[1].newPercentage, 32.5);
+
     await service.updatePercentage(30, 'restore test baseline', actor);
   } finally {
     await dataSource.destroy();
