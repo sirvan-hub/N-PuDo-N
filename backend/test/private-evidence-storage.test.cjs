@@ -85,6 +85,39 @@ test('private evidence upload returns an opaque reference and never a public URL
   assert.equal('public_url' in result, false);
 });
 
+test('assigned courier can upload a private postal label image', async (t) => {
+  const { service, parcel } = setup();
+  const previousFetch = global.fetch;
+  const previousUrl = process.env.SUPABASE_URL;
+  const previousBucket = process.env.SUPABASE_STORAGE_BUCKET;
+  const previousKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  t.after(() => {
+    global.fetch = previousFetch;
+    for (const [key, value] of [
+      ['SUPABASE_URL', previousUrl],
+      ['SUPABASE_STORAGE_BUCKET', previousBucket],
+      ['SUPABASE_SERVICE_ROLE_KEY', previousKey],
+    ]) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+  process.env.SUPABASE_URL = 'https://project-ref.supabase.co';
+  process.env.SUPABASE_STORAGE_BUCKET = 'pudo-evidence';
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'server-only-test-secret';
+  let requestUrl = '';
+  global.fetch = async (url) => {
+    requestUrl = String(url);
+    return new Response(JSON.stringify({ Key: 'label-test-object' }), { status: 200 });
+  };
+  const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  const result = await service.upload(parcel.id, EvidenceCategory.LABEL_IMAGE, {
+    buffer: png, mimetype: 'image/png', size: png.length,
+  }, courier);
+  assert.match(requestUrl, /\/storage\/v1\/object\/pudo-evidence\/parcels\/parcel-123\/label_image\//);
+  assert.match(result.evidence_ref, /^pudo-evidence:\/\/parcels\/parcel-123\/label_image\/[0-9a-f-]+\.png$/);
+});
+
 test('signed URL creation refuses evidence not attached to the requested parcel', async () => {
   const { service, parcel } = setup();
   await assert.rejects(
