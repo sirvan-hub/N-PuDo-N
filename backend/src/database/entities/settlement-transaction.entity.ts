@@ -5,6 +5,7 @@ export enum SettlementTransactionType {
   PAYMENT = 'PAYMENT',
   REFUND = 'REFUND',
   HUB_PAYOUT = 'HUB_PAYOUT',
+  COURIER_PAYOUT = 'COURIER_PAYOUT',
   HOLD = 'HOLD',
   RELEASE = 'RELEASE',
 }
