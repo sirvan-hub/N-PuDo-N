@@ -56,6 +56,21 @@ export class AddDomainFinancialContracts1791630000001 implements MigrationInterf
     `);
 
     await queryRunner.query(`
+      UPDATE "invoices"
+      SET "tariff_snapshot" = jsonb_build_object(
+        'snapshotVersion', 1,
+        'source', 'legacy-invoice-columns',
+        'basePostCost', "base_post_cost",
+        'elapsedHours', "elapsed_hours",
+        'feePercentage', "fee_percentage",
+        'calculatedFee', "calculated_fee",
+        'totalAmount', "total_amount",
+        'currencyUnit', 'TOMAN'
+      )
+      WHERE "tariff_snapshot" = '{}'::jsonb
+    `);
+
+    await queryRunner.query(`
       DO $migration$
       BEGIN
         IF EXISTS (
