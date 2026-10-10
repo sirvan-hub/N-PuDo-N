@@ -15,7 +15,7 @@
 - Posting ledger rows and updating the affected wallet balance buckets must occur in the same database transaction. `WalletsService.credit`, `creditPending`, `releasePending`, `hold`, `releaseHold`, and `debit` use transactions, PostgreSQL row locking, and an idempotency record written in the same transaction. `debit` is an internal wallet posting only; payout-provider execution and revenue allocation remain separate workflows.
 - Ledger entries are append-only by application contract. Corrections use compensating entries, not UPDATE/DELETE. The database migration does not install a trigger that prevents a privileged database operator from editing rows.
 - Existing nonzero available and pending balances are represented by deterministic opening entries during migration. `blocked_balance` is introduced by this migration and starts at zero. Historical movements before this migration cannot be reconstructed; the opening entries establish a migration-time starting point only.
-- No revenue split is approved by this contract. Existing `hub_owner_share` and `platform_fee` fields remain for compatibility but must not be treated as approval of the currently coded 70/30 calculation.
+- Hub share is approved at a default 30% of the invoice total and is configurable by `ADMIN` / `SUPER_ADMIN` from `PUT /v1/admin/hub-share`. Values from 0% to 100%, up to two decimal places, are accepted. Each change records the prior/new rate, actor, optional reason and timestamp in `hub_share_rate_history`. Each newly created invoice stores `hub_share_percent` and a `hub_share_snapshot`; later setting changes do not rewrite prior invoices. The share amount is floored to a whole toman. `platform_fee` remains zero/unallocated; the remaining amount is not assigned to the platform or courier by this contract.
 
 ## 2. Invoice and tariff snapshot
 
@@ -47,11 +47,11 @@
 - The endpoint accepts an Idempotency-Key header and a provider reference. It is for recording a payment that has already been verified with the payment provider or by an authorized reconciliation process; it must not be used as evidence that a payment occurred without independent verification.
 - Only an invoice in `PENDING` can be confirmed. The invoice transition to `PAID`, `paid_at`, completed `PAYMENT` settlement record, audit record, and idempotency response commit or roll back together.
 - Same-key/same-request retries return the saved response; same key with a different request conflicts. Completed payment provider references are protected by a unique partial index.
-- This slice does not transfer money into a hub wallet, calculate a hub/platform split, execute refunds or payouts, or contact a payment provider. The 70/30 split remains unapproved.
+- Hub owners can submit idempotent payout requests for their own hub. The request atomically reserves the requested available wallet balance in the blocked bucket and writes two ledger rows. Administrators can approve or reject; rejection releases the reservation atomically, while approval keeps the amount blocked. Approval is not a bank transfer: external payout execution and verified provider outcomes are not implemented. The owner can read only their own hub payout history; admins can review requests. Same-key/same-payload requests replay their result; same key with a different payload conflicts.
 
 ## 6. Explicitly unresolved / not authorized by this contract
 
-1. The 70/30 revenue split is not approved. No migration constraint or new service should enforce it as policy.
+1. The 30% hub share is approved as a default and is administrator-configurable. Platform/courier allocation of the remaining amount is still undefined; `platform_fee` stays zero.
 2. The exact currency code/representation for gateways and reports (whole toman is the current project convention; external ISO currency mapping remains open).
 3. Payment-provider integration, payment-attempt history, retry/timeout rules, and external reconciliation.
 4. Custody-code expiry duration, maximum attempts, and lockout duration.
@@ -70,3 +70,5 @@
 - Existing wallet available/pending balances are represented by opening ledger entries.
 - PostgreSQL CI applies the additive migrations, runs tests, then reverts them on the disposable service.
 - Invoice payment reconciliation is administrator-only, atomic across invoice/settlement/audit/idempotency records, rejects repeated payment references, and is verified by PostgreSQL integration tests.
+- Hub share defaults to 30%, changes are administrator-only and historized, new invoices persist a rate snapshot, and historical invoices are not backfilled with a new commercial rate.
+- Hub payout requests reserve available funds atomically; administrator rejection releases them, approval leaves them blocked, and no external transfer is claimed or executed.
