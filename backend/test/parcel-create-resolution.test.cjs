@@ -12,6 +12,7 @@ const { NotificationEntity } = require('../dist/database/entities/notification.e
 const { UserRole } = require('../dist/common/interfaces/user-payload.interface');
 
 const dto = {
+  invitation_id: 'invitation-accepted-1',
   tracking_code: 'TRACK-CI-001',
   recipient_phone: '+989120000001',
   recipient_name: 'CI Recipient',
@@ -46,6 +47,15 @@ test('parcel creation resolves recipient and validates the proposed hub without 
   assert.equal(parcel.base_post_cost, 25000);
   assert.equal(parcel.tariff_version_id, 'tariff-v1');
   assert.equal(saved.length, 1);
+});
+
+test('parcel registration rejects missing recipient consent invitation', async () => {
+  const { service } = makeService();
+  const { invitation_id, ...withoutInvitation } = dto;
+  await assert.rejects(
+    service.create(withoutInvitation, 'courier-1'),
+    (error) => error && error.getStatus && error.getStatus() === 400,
+  );
 });
 
 test('parcel creation rejects an unregistered recipient', async () => {
