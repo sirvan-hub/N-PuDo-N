@@ -1,6 +1,6 @@
 # PostgreSQL Domain Schema Gap Analysis and Migration Plan
 
-**Status:** Design proposal only; no production operation and no schema migration applied.
+**Status:** Additive domain migration implemented on the feature branch; CI verification pending. No production operation or production schema migration has occurred.
 **Target branch:** `feat/postgres-migrations-ci`
 **Baseline commit reviewed:** `72dbc4a37027ab39a8d9d3da877b74b24c89cf4e`
 **Decision rule:** preserve the approved 14-value parcel status contract. Do not invent commercial rules or silently alter domain invariants.
@@ -10,6 +10,14 @@
 The current PostgreSQL migration creates five tables mapped by the active NestJS entities: `users`, `hubs`, `parcels`, `invoices`, and `wallets`. The canonical SQL baseline describes twelve tables. In addition, the five current tables do not fully match the canonical baseline or the wider domain requirements.
 
 The next change should be additive and versioned. Do not rewrite the existing initial migration after it may have been applied in another environment. First settle the blocking contract differences below; then implement a follow-up migration, matching entities, services, and PostgreSQL CI tests together.
+
+## 1A. Approved contract and implementation status
+
+The implementation contract is documented in [FINANCIAL_IDEMPOTENCY_CUSTODY_CONTRACT.md](./FINANCIAL_IDEMPOTENCY_CUSTODY_CONTRACT.md). It records the user's choices: ledger-backed wallets; preserve current invoice states and add `OVERDUE` / `CANCELLED`; idempotency uniqueness by actor scope + operation type + key; four-digit single-use custody codes stored as salted hashes.
+
+The additive migration `1791630000001-AddDomainFinancialContracts` creates tariff versions, invoice snapshots/status constraint, idempotency records, wallet ledger, registration history, custody transfer history, settlement records, audit logs, wallet blocked balance, and parcel lifecycle columns. It backfills existing invoice pricing fields into immutable JSON snapshots and establishes opening ledger entries for nonzero available/pending wallet balances.
+
+This is schema groundwork, not a claim that the application has already implemented atomic ledger posting, idempotent API responses, tariff-version selection, payment-provider reconciliation, or custody-code verification. Those runtime behaviors remain a separate implementation slice. The initial migration remains unchanged.
 
 ## 2. Evidence-based gap inventory
 
