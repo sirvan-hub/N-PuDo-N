@@ -374,7 +374,7 @@ export class ParcelsService {
         user_id: actor.sub,
         category: 'DELIVERY_CODE',
         title: 'کد تحویل مرسوله',
-        body: `کد یک‌بارمصرف تحویل مرسوله ${lockedParcel.tracking_code} برابر ${code} است. این کد تا ۱۰ دقیقه معتبر است و فقط یک‌بار استفاده می‌شود. کد را فقط هنگام تحویل واقعی مرسوله در اختیار هاب‌دار قرار دهید.`,
+        body: `کد یک‌بارمصرف تحویل مرسوله ${lockedParcel.tracking_code} برابر ${code} است. این کد تا یک ساعت معتبر است و فقط یک‌بار استفاده می‌شود. کد را فقط هنگام تحویل واقعی مرسوله در اختیار هاب‌دار قرار دهید.`,
         reference_type: 'custody_transfer',
         reference_id: transfer.id,
         expires_at: expiresAt,
