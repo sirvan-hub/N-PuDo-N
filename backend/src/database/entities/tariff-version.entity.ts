@@ -3,6 +3,7 @@ import { databaseDateColumnType } from '../database-column-types';
 
 @Entity('tariff_versions')
 @Index('idx_tariff_versions_active_effective', ['is_active', 'effective_from', 'effective_until'])
+@Index('uq_tariff_versions_single_active', ['is_active'], { unique: true, where: '"is_active" = TRUE' })
 export class TariffVersionEntity {
   @PrimaryGeneratedColumn('uuid') id: string;
   @Column({ type: 'varchar', length: 80, unique: true }) version_key: string;
