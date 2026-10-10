@@ -3,6 +3,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { createHash } from 'node:crypto';
 import { DataSource, EntityManager } from 'typeorm';
 import { HubEntity } from '../../database/entities/hub.entity';
+import { AuditLogEntity } from '../../database/entities/audit-log.entity';
 import { PayoutPreferenceEntity } from '../../database/entities/payout-preference.entity';
 import { WalletEntity } from '../../database/entities/wallet.entity';
 import { WalletTransactionEntity, WalletBucket, WalletTransactionType } from '../../database/entities/wallet-transaction.entity';
@@ -68,6 +69,13 @@ export class HubPayoutRequestsService {
           idempotency_record_id: idem.id,
         }),
       );
+      await manager.getRepository(AuditLogEntity).save(manager.getRepository(AuditLogEntity).create({
+        actor_id: actor.sub, actor_role: actor.role, entity_type: 'settlement_transaction', entity_id: request.id,
+        action: 'PAYOUT_REQUESTED', old_state: { availableBalance: wallet.balance + amount, blockedBalance: Number(wallet.blocked_balance) - amount },
+        new_state: { status: SettlementTransactionStatus.REQUESTED, availableBalance: wallet.balance, blockedBalance: wallet.blocked_balance },
+        transaction_id: request.id, correlation_id: key.slice(0, 120),
+        metadata: { beneficiaryType: 'HUB', hubId: hub.id, amount, frequency: preference.frequency },
+      }));
       const response = {
         requestId: request.id, hubId: hub.id, amount, currencyUnit: 'TOMAN',
         status: SettlementTransactionStatus.REQUESTED, availableBalance: wallet.balance,
@@ -144,6 +152,13 @@ export class HubPayoutRequestsService {
       request.reviewed_at = new Date();
       request.review_note = normalizedNote;
       await repo.save(request);
+      await manager.getRepository(AuditLogEntity).save(manager.getRepository(AuditLogEntity).create({
+        actor_id: actor.sub, actor_role: actor.role, entity_type: 'settlement_transaction', entity_id: request.id,
+        action: 'PAYOUT_REQUEST_REVIEWED', old_state: { status: SettlementTransactionStatus.REQUESTED },
+        new_state: { status: request.status, fundsReleased: decision === 'REJECT' },
+        transaction_id: request.id, correlation_id: key.slice(0, 120),
+        metadata: { decision, amount: Number(request.amount), beneficiaryType: request.transaction_type === SettlementTransactionType.COURIER_PAYOUT ? 'COURIER' : 'HUB' },
+      }));
       const response = {
         requestId: request.id, hubId: request.hub_id,
         courierId: request.transaction_type === SettlementTransactionType.COURIER_PAYOUT ? request.requested_by : null,
