@@ -210,9 +210,22 @@ export class ParcelsService {
       const existingInvoice = await invoices.findOne({ where: { parcel_id: parcel.id } });
       if (existingInvoice) {
         if (parcel.status === ParcelStatus.STORED_AT_HUB && canTransitionParcel(parcel.status, ParcelStatus.READY_FOR_CUSTOMER)) {
+          const previousStatus = parcel.status;
           parcel.status = ParcelStatus.READY_FOR_CUSTOMER;
           parcel.updated_at = new Date();
           await parcels.save(parcel);
+          await manager.getRepository(AuditLogEntity).save(manager.getRepository(AuditLogEntity).create({
+            actor_id: actor.sub,
+            actor_role: actor.role,
+            entity_type: 'parcel',
+            entity_id: parcel.id,
+            action: 'PARCEL_READY_FOR_CUSTOMER',
+            old_state: { status: previousStatus },
+            new_state: { status: ParcelStatus.READY_FOR_CUSTOMER },
+            transaction_id: parcel.id,
+            correlation_id: `parcel-stage:${parcel.id}:READY_FOR_CUSTOMER`,
+            metadata: { stage: 'CUSTOMER_COLLECTION_REQUESTED', existingInvoice: true },
+          }));
         }
         return { parcel, invoice: existingInvoice, alreadyIssued: true };
       }
