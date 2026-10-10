@@ -46,9 +46,13 @@ test('hub share configuration records rate changes and preserves default 30%', a
     const concurrentHistory = await service.getHistory(10);
     const concurrentRows = concurrentHistory.filter((item) => [31, 33].includes(item.newPercentage));
     assert.equal(concurrentRows.length, 2);
-    assert.equal(concurrentRows[0].oldPercentage, concurrentRows[1].newPercentage);
-    assert.ok([31, 33].includes(concurrentRows[1].oldPercentage));
-    assert.equal(concurrentRows[1].newPercentage, 32.5);
+    const firstUpdate = concurrentRows.find((item) => item.oldPercentage === 32.5);
+    assert.ok(firstUpdate, 'one concurrent update must start from the previous rate');
+    const secondUpdate = concurrentRows.find((item) => item.oldPercentage === firstUpdate.newPercentage);
+    assert.ok(secondUpdate, 'the next audit entry must continue from the preceding rate');
+    assert.ok([31, 33].includes(firstUpdate.newPercentage));
+    assert.ok([31, 33].includes(secondUpdate.newPercentage));
+    assert.notEqual(firstUpdate.newPercentage, secondUpdate.newPercentage);
 
     await service.updatePercentage(30, 'restore test baseline', actor);
   } finally {
