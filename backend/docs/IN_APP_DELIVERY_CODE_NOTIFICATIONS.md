@@ -6,7 +6,7 @@ provider are implemented, the delivery code is placed in the authenticated
 recipient's in-app notification inbox. No SMS gateway configuration is required.
 
 The backend generates a six-digit code, stores only its salted SHA-256 hash in the
-custody ledger, expires it after 10 minutes, and invalidates it after five failed
+custody ledger, expires it after one hour, and invalidates it after five failed
 verification attempts. The plaintext code is present only in the recipient's
 private in-app notification message and is never returned to the hub owner's API
 response or written to audit logs.
@@ -18,6 +18,8 @@ The API excludes expired messages from the inbox. This reduces retention of expi
 secrets even when a recipient does not sign in again. Cleanup is best-effort while
 the backend is running; it does not retroactively remove copies already displayed,
 captured, or exported by a recipient.
+
+The one-hour lifetime is the approved product policy and is covered by `backend/test/delivery-code-policy.test.cjs`. The code remains single-use and invalid after five failed attempts; the existing resend cooldown remains in place.
 
 ## API flow
 
