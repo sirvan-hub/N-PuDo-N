@@ -44,3 +44,38 @@ test('invalid base amount and timestamps are rejected', () => {
   assert.throws(() => service.calculate({ delivered_to_hub_at: deliveredAt, base_post_cost: 100 }, atHours(-1)));
   assert.throws(() => service.calculate({ delivered_to_hub_at: 'not-a-date', base_post_cost: 100 }, atHours(1)));
 });
+
+test('active database tariff controls package-size base price and invoice tariff snapshot', async () => {
+  const activeTariff = {
+    id: 'tariff-version-123',
+    version_key: 'PUDO-N-TARIFF-168H-V1',
+    small_base_amount: '18000',
+    medium_base_amount: '25000',
+    large_base_amount: '35000',
+    under_12h_percent: '20.00',
+    from_12_to_24h_percent: '40.00',
+    additional_started_24h_percent: '50.00',
+    expiry_hours: 168,
+    rounding_mode: 'CEIL',
+  };
+  const db = {
+    options: { type: 'postgres' },
+    query: async (sql) => {
+      assert.match(sql, /FROM tariff_versions/);
+      return [activeTariff];
+    },
+  };
+  const activeService = new PricingService(db);
+  assert.deepEqual(await activeService.resolveBaseCost('SMALL', atHours(1)), {
+    basePostCost: 18000, tariffVersionId: 'tariff-version-123', tariffKey: 'PUDO-N-TARIFF-168H-V1',
+  });
+  const priced = await activeService.calculateWithActiveTariff({
+    package_size: 'LARGE',
+    base_post_cost: 1,
+    delivered_to_hub_at: deliveredAt,
+  }, atHours(13));
+  assert.equal(priced.basePostCost, 35000);
+  assert.equal(priced.calculatedFee, 14000);
+  assert.equal(priced.tariffVersionId, 'tariff-version-123');
+  assert.equal(priced.tariffSnapshot.tariffVersionId, 'tariff-version-123');
+});
