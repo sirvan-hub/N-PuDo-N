@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { createHash } from 'node:crypto';
 import { DataSource, EntityManager } from 'typeorm';
@@ -53,7 +53,7 @@ export class CourierPayoutRequestsService {
         wallet_id: wallet.id, actor_id: actor.sub, idempotency_record_id: idem.id,
         transaction_type: WalletTransactionType.HOLD, bucket: WalletBucket.BLOCKED,
         amount: String(amount), bucket_balance_after: String(wallet.blocked_balance), currency_unit: 'TOMAN',
-        reference_type: 'SETTLEMENT', description: 'Reserve funds for hub payout request',
+        reference_type: 'SETTLEMENT', description: 'Reserve funds for courier payout request',
       }));
 
       const request = await manager.getRepository(SettlementTransactionEntity).save(
@@ -123,10 +123,4 @@ export class CourierPayoutRequestsService {
     return query.getOne();
   }
 
-  private async lockWalletById(manager: EntityManager, walletId: string) {
-    const repo = manager.getRepository(WalletEntity);
-    const query = repo.createQueryBuilder('wallet').where('wallet.id = :walletId', { walletId });
-    if (manager.connection.options.type === 'postgres') query.setLock('pessimistic_write');
-    return query.getOne();
-  }
 }
