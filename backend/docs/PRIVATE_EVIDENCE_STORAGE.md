@@ -15,13 +15,13 @@ Create the bucket in Supabase Storage with **Public bucket disabled**. Do not cr
 Both endpoints require a Pudo-N bearer token:
 
 - `POST /v1/evidence/parcels/:parcelId` — multipart form with `file` and `category`. Supported categories:
-  - `ENTRY_FEE_RECEIPT` (registered recipient)
+  - `LABEL_IMAGE` (assigned courier; attach the returned reference via `POST /v1/parcels/:id/label-image` before hub selection)\n  - `ENTRY_FEE_RECEIPT` (registered recipient)
   - `COURIER_HANDOVER` (assigned courier)
   - `HUB_RECEIPT` / `HUB_RELEASE` (assigned hub owner)
   - `RECIPIENT_HANDOVER` (registered recipient)
 - `GET /v1/evidence/parcels/:parcelId/signed-url?ref=<encoded-evidence-ref>` — returns a signed URL valid for 60 seconds only when the reference is already attached to the parcel/charge/transfer and the caller can access that parcel.
 
-The upload response contains an opaque `pudo-evidence://...` reference, not a public URL. Submit that reference to the relevant existing custody/receipt endpoint so it becomes attached to the domain record; only attached references can be retrieved. Uploads accept JPEG, PNG, and WebP with a 10 MB limit and check the file signature against its declared MIME type.
+The upload response contains an opaque `pudo-evidence://...` reference, not a public URL. Submit that reference to the relevant domain endpoint so it becomes attached to the domain record; only attached references can be retrieved. For label images, create the parcel draft first without `label_image_ref`, upload with category `LABEL_IMAGE`, then attach the returned reference using `POST /v1/parcels/:id/label-image`. Hub selection is rejected until a label reference is attached. This draft-first sequence is an implementation compromise; the UI must make the label step mandatory before continuing the workflow. Uploads accept JPEG, PNG, and WebP with a 10 MB limit and check the file signature against its declared MIME type.
 
 ## Current boundary / remaining work
 
