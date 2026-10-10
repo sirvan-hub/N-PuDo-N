@@ -1,5 +1,6 @@
 ﻿import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, Index, ManyToOne, JoinColumn } from 'typeorm';
 import { ParcelEntity } from './parcel.entity';
+import { databaseDateColumnType, databaseUuidColumnType } from '../database-column-types';
 
 export enum PaymentStatus { PENDING = 'PENDING', PAID = 'PAID', FAILED = 'FAILED', REFUNDED = 'REFUNDED' }
 
@@ -7,10 +8,10 @@ export enum PaymentStatus { PENDING = 'PENDING', PAID = 'PAID', FAILED = 'FAILED
 export class InvoiceEntity {
   @PrimaryGeneratedColumn('uuid') id: string;
   @Column({ type: 'varchar', length: 30, unique: true }) invoice_number: string;
-  @Column({ type: 'uuid' }) @Index() parcel_id: string;
+  @Column({ type: databaseUuidColumnType }) @Index() parcel_id: string;
   @ManyToOne(() => ParcelEntity) @JoinColumn({ name: 'parcel_id' }) parcel: ParcelEntity;
-  @Column({ type: 'uuid' }) recipient_id: string;
-  @Column({ type: 'uuid' }) hub_id: string;
+  @Column({ type: databaseUuidColumnType }) recipient_id: string;
+  @Column({ type: databaseUuidColumnType }) hub_id: string;
   @Column({ type: 'integer' }) base_post_cost: number;
   @Column({ type: 'decimal', precision: 6, scale: 2 }) elapsed_hours: number;
   @Column({ type: 'decimal', precision: 5, scale: 2 }) fee_percentage: number;
@@ -19,6 +20,6 @@ export class InvoiceEntity {
   @Column({ type: 'varchar', length: 20, default: PaymentStatus.PENDING }) status: PaymentStatus;
   @Column({ type: 'integer' }) hub_owner_share: number;
   @Column({ type: 'integer' }) platform_fee: number;
-  @CreateDateColumn({ type: 'timestamptz' }) created_at: Date;
-  @UpdateDateColumn({ type: 'timestamptz' }) updated_at: Date;
+  @CreateDateColumn({ type: databaseDateColumnType }) created_at: Date;
+  @UpdateDateColumn({ type: databaseDateColumnType }) updated_at: Date;
 }
