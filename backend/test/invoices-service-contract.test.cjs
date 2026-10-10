@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { InvoicesService } = require('../dist/modules/invoices/invoices.service');
 
-test('invoice snapshots balanced 30/30/40 allocation with integer rounding, async () => {
+test('invoice snapshots balanced 30/30/40 allocation with integer rounding', async () => {
   let saved;
   const repo = {
     create: (value) => ({ ...value }),
