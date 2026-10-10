@@ -67,7 +67,7 @@ export class ParcelsController {
   @Post(':id/request-delivery-code')
   @Roles(UserRole.RECIPIENT)
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Send a short-lived delivery code to the registered recipient phone through the configured SMS gateway' })
+  @ApiOperation({ summary: 'Place a short-lived delivery code in the registered recipient’s in-app notification inbox' })
   async requestDeliveryCode(@Param('id') id: string, @CurrentUser() user: UserPayload) {
     return this.parcelsService.requestDeliveryCode(id, user);
   }
