@@ -91,6 +91,12 @@ test('hub payout request reserves funds, is idempotent, and rejection releases t
     assert.equal(balances[0].balance, 3000);
     assert.equal(Number(balances[0].blocked_balance), 2000);
 
+    await assert.rejects(
+      service.reviewPayout(first.requestId, 'REJECT', 'Owner must not self-review', `owner-review-${suffix}`, owner),
+      (error) => error && error.getStatus && error.getStatus() === 403,
+      'a hub owner must not approve or reject their own payout request',
+    );
+
     const rejected = await service.reviewPayout(first.requestId, 'REJECT', 'Reject CI request', `review-reject-${suffix}`, admin);
     assert.equal(rejected.status, 'REJECTED');
     assert.equal(rejected.fundsReleased, true);
