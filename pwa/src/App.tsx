@@ -252,6 +252,85 @@ export default function App() {
     }
   }
 
+
+  useEffect(() => {
+    if (!session || !apiBase || !['ADMIN', 'SUPER_ADMIN'].includes(session.user.role)) {
+      setAdminPayoutQueue([]);
+      return;
+    }
+    let cancelled = false;
+    const loadQueue = async () => {
+      try {
+        const response = await fetch(apiBase + '/settlements/payout-requests', {
+          headers: { Authorization: 'Bearer ' + session.token },
+        });
+        const body: unknown = await response.json().catch(() => []);
+        if (!response.ok) throw new Error(getApiError(body, 'دریافت صف تسویه ناموفق بود.'));
+        if (!Array.isArray(body)) throw new Error('ساختار صف تسویه معتبر نیست.');
+        if (!cancelled) setAdminPayoutQueue(body as PayoutQueueItem[]);
+      } catch (cause) {
+        if (!cancelled) setPayoutError(cause instanceof Error ? cause.message : 'دریافت صف تسویه ناموفق بود.');
+      }
+    };
+    void loadQueue();
+    return () => { cancelled = true; };
+  }, [session]);
+
+  async function verifyPayoutDestination(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!session || !apiBase) return;
+    if (!destinationVerifyUserId.trim() || !destinationVerificationReference.trim()) {
+      setPayoutError('شناسه کاربر و مرجع بررسی خارجی را وارد کنید.');
+      return;
+    }
+    setPayoutLoading(true);
+    setPayoutError('');
+    setPayoutMessage('');
+    try {
+      const response = await fetch(apiBase + '/settlements/payout-profiles/' + encodeURIComponent(destinationVerifyUserId.trim()) + '/verify-destination', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + session.token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ verificationReference: destinationVerificationReference.trim() }),
+      });
+      const body: unknown = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(getApiError(body, 'ثبت تأیید مقصد تسویه ناموفق بود.'));
+      setDestinationVerifyUserId('');
+      setDestinationVerificationReference('');
+      setPayoutMessage('تأیید دستی مقصد ثبت شد؛ این عملیات استعلام خودکار بانک نیست.');
+    } catch (cause) {
+      setPayoutError(cause instanceof Error ? cause.message : 'ثبت تأیید مقصد تسویه ناموفق بود.');
+    } finally {
+      setPayoutLoading(false);
+    }
+  }
+
+  async function reviewPayoutRequest(requestId: string, decision: 'APPROVE' | 'REJECT') {
+    if (!session || !apiBase) return;
+    setPayoutLoading(true);
+    setPayoutError('');
+    setPayoutMessage('');
+    try {
+      const idempotencyKey = globalThis.crypto?.randomUUID?.() ?? ('payout-review-' + Date.now() + '-' + Math.random().toString(16).slice(2));
+      const response = await fetch(apiBase + '/settlements/payout-requests/' + encodeURIComponent(requestId) + '/review', {
+        method: 'PATCH',
+        headers: { Authorization: 'Bearer ' + session.token, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify({ decision, note: decision === 'APPROVE' ? 'Approved after administrator review; no bank transfer executed.' : 'Rejected by administrator review.' }),
+      });
+      const body: unknown = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(getApiError(body, 'بررسی درخواست تسویه ناموفق بود.'));
+      setPayoutMessage(decision === 'APPROVE' ? 'درخواست تأیید شد؛ انتقال بانکی اجرا نشده است.' : 'درخواست رد شد و مبلغ رزروشده برگشت.');
+      const queueResponse = await fetch(apiBase + '/settlements/payout-requests', {
+        headers: { Authorization: 'Bearer ' + session.token },
+      });
+      const queueBody: unknown = await queueResponse.json().catch(() => []);
+      if (queueResponse.ok && Array.isArray(queueBody)) setAdminPayoutQueue(queueBody as PayoutQueueItem[]);
+    } catch (cause) {
+      setPayoutError(cause instanceof Error ? cause.message : 'بررسی درخواست تسویه ناموفق بود.');
+    } finally {
+      setPayoutLoading(false);
+    }
+  }
+
   async function markNotificationRead(notificationId: string) {
     if (!session || !apiBase) return;
     setNotificationError('');
