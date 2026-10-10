@@ -134,6 +134,49 @@ export class WalletsService {
     });
   }
 
+  /** Read-only view of the authenticated user's wallet. Does not create a wallet as a side effect. */
+  async getOwnWallet(userId: string) {
+    const wallet = await this.dataSource.getRepository(WalletEntity).findOne({ where: { user_id: userId } });
+    if (!wallet) {
+      return { userId, balance: 0, pendingBalance: 0, blockedBalance: 0, totalEarned: 0, currencyUnit: 'TOMAN' };
+    }
+    return {
+      walletId: wallet.id,
+      userId,
+      balance: wallet.balance,
+      pendingBalance: wallet.pending_balance,
+      blockedBalance: wallet.blocked_balance ?? 0,
+      totalEarned: wallet.total_earned,
+      currencyUnit: 'TOMAN',
+      createdAt: wallet.created_at,
+      updatedAt: wallet.updated_at,
+    };
+  }
+
+  /** Read-only, owner-scoped ledger history with bounded pagination. */
+  async getOwnTransactions(userId: string, limit = 50, offset = 0) {
+    const safeLimit = Number.isInteger(limit) ? Math.min(Math.max(limit, 1), 100) : 50;
+    const safeOffset = Number.isInteger(offset) ? Math.max(offset, 0) : 0;
+    const wallet = await this.dataSource.getRepository(WalletEntity).findOne({ where: { user_id: userId } });
+    if (!wallet) return { items: [], limit: safeLimit, offset: safeOffset, total: 0 };
+
+    const [items, total] = await this.dataSource.getRepository(WalletTransactionEntity).findAndCount({
+      where: { wallet_id: wallet.id },
+      order: { created_at: 'DESC', id: 'DESC' },
+      take: safeLimit,
+      skip: safeOffset,
+    });
+    return {
+      items: items.map(({ id, transaction_type, bucket, amount, bucket_balance_after, currency_unit, reference_type, reference_id, description, created_at }) => ({
+        id, transactionType: transaction_type, bucket, amount, balanceAfter: bucket_balance_after,
+        currencyUnit: currency_unit, referenceType: reference_type, referenceId: reference_id, description, createdAt: created_at,
+      })),
+      limit: safeLimit,
+      offset: safeOffset,
+      total,
+    };
+  }
+
   private async findWalletForUpdate(manager: EntityManager, userId: string): Promise<WalletEntity | null> {
     const repository = manager.getRepository(WalletEntity);
     if (manager.connection.options.type === 'postgres') {
