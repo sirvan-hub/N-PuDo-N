@@ -142,7 +142,7 @@ export class ParcelsService {
 
     return this.dataSource.transaction(async (manager) => {
       const parcels = manager.getRepository(ParcelEntity);
-      const parcel = await parcels.findOne({ where: { id: parcelId }, lock: { mode: 'pessimistic_write' } });
+      const parcel = await this.findParcelForUpdate(manager, parcelId);
       if (!parcel) throw new NotFoundException('Parcel not found');
       if (parcel.recipient_id !== actor.sub && parcel.recipient_phone !== actor.phone) {
         throw new ForbiddenException('Only the parcel recipient can request collection');
