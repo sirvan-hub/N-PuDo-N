@@ -26,6 +26,13 @@ test('168 hours is 340% and marks the parcel expired', () => {
   assert.equal(result.calculatedFee, 3400);
   assert.equal(result.isExpired, true);
   assert.equal(calculate(168, -1).isExpired, false);
+  const beyondCap = calculate(200);
+  assert.equal(beyondCap.feePercentage, 3.4);
+  assert.equal(beyondCap.calculatedFee, 3400);
+  assert.equal(beyondCap.isExpired, true);
+  assert.equal(beyondCap.elapsedHours, 168);
+  assert.equal(beyondCap.actualElapsedHours, 200);
+  assert.equal(beyondCap.tariffSnapshot.capReached, true);
 });
 
 test('money is rounded up to the next whole currency unit', () => {
