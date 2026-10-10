@@ -1,0 +1,34 @@
+# Pudo-N in-app delivery-code notifications
+
+The recipient delivery-code flow uses the existing `custody_transfers` ledger with
+`transfer_type = HUB_TO_RECIPIENT`. Until account-login OTP and any external SMS
+provider are implemented, the delivery code is placed in the authenticated
+recipient's in-app notification inbox. No SMS gateway configuration is required.
+
+The backend generates a six-digit code, stores only its salted SHA-256 hash in the
+custody ledger, expires it after 10 minutes, and invalidates it after five failed
+verification attempts. The plaintext code is present only in the recipient's
+private notification message and is never returned to the hub owner's API response
+or written to audit logs. The notification expires from the API inbox when the
+code expires; its persisted record remains available to authorized internal audit
+processes subject to retention policy.
+
+## API flow
+
+1. The authenticated recipient calls `POST /parcels/:id/request-delivery-code`.
+2. The backend verifies recipient ownership, `READY_FOR_CUSTOMER` state, and a
+   `PAID` invoice, then stores a private notification in the recipient's inbox.
+3. The recipient opens `GET /notifications` in their signed-in account to view the
+   code. `POST /notifications/:id/read` marks the message as read.
+4. The hub owner calls `POST /parcels/:id/confirm-customer-release` with
+   `deliveryCode` and optional `nationalId`.
+5. If a national ID is supplied and a reference ID is stored for the recipient, it
+   must match. The code remains mandatory regardless of national-ID handling.
+6. A successful one-time verification marks the custody transfer `CONFIRMED` and
+   the parcel `COLLECTED` in one database transaction and writes an audit event.
+
+The in-app message is an interim delivery channel, not account-login OTP. It assumes
+the recipient can sign in to their existing account. Do not treat code generation
+alone as successful delivery: the API reports `sent: true` only after the
+notification record has been saved. No Production configuration or SMS provider
+was changed by this PR.
