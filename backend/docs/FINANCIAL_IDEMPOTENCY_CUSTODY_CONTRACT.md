@@ -1,7 +1,7 @@
 # Financial, Idempotency, and Custody Data Contracts
 
 **Status:** Approved implementation contract for the additive PostgreSQL migration on `feat/postgres-migrations-ci`.
-**Scope:** schema and PostgreSQL integration tests only in this slice. This does not implement or enable production financial posting APIs.
+**Scope:** additive schema, internal atomic wallet operations, authenticated read-only wallet APIs, and PostgreSQL integration/authorization tests on the feature branch. No public financial mutation endpoint or production financial posting is enabled.
 **Safety:** the initial migration is immutable; CI uses disposable PostgreSQL only; no production database, Render service, DNS, or `main` changes.
 
 ## 1. Wallet and immutable ledger
@@ -10,9 +10,9 @@
 - `wallets.pending_balance` means earned/credited funds not yet available for use or payout.
 - `wallets.blocked_balance` means funds temporarily held and unavailable; it is distinct from pending funds.
 - `wallets.total_earned` is a cumulative reporting metric for earned credits; it is not the spendable balance and must not be decremented by payout.
-- `wallet_transactions` is the immutable record of balance-bucket movements. Amounts are signed integer minor units in the project's current currency convention (whole toman); positive adds and negative removes from the named bucket. Every row records the resulting bucket balance.
+- `wallet_transactions` is the immutable record of balance-bucket movements. `amount` is a positive whole-toman magnitude; transaction type plus bucket identifies the movement direction. For a two-bucket movement (hold/release), one ledger row is written for each affected bucket, each recording that bucket's resulting balance.
 - The invariant for each wallet and bucket is: the bucket balance equals the sum of its opening-balance entry plus all later ledger entries in that bucket. Available, pending, and blocked balances must never be combined implicitly.
-- Posting a ledger row and updating the matching wallet balance must occur in the same database transaction. The implemented `WalletsService.credit(userId, amount, idempotencyKey)` uses a transaction and PostgreSQL row locking, and writes the idempotency response in the same transaction. This currently covers the wallet-credit service operation only; it does not yet provide a public API endpoint or implement all debit/hold/payout operations.
+- Posting ledger rows and updating the affected wallet balance buckets must occur in the same database transaction. `WalletsService.credit`, `creditPending`, `releasePending`, `hold`, `releaseHold`, and `debit` use transactions, PostgreSQL row locking, and an idempotency record written in the same transaction. `debit` is an internal wallet posting only; payout-provider execution and settlement orchestration remain separate workflows.
 - Ledger entries are append-only by application contract. Corrections use compensating entries, not UPDATE/DELETE. The database migration does not install a trigger that prevents a privileged database operator from editing rows.
 - Existing nonzero available and pending balances are represented by deterministic opening entries during migration. `blocked_balance` is introduced by this migration and starts at zero. Historical movements before this migration cannot be reconstructed; the opening entries establish a migration-time starting point only.
 - No revenue split is approved by this contract. Existing `hub_owner_share` and `platform_fee` fields remain for compatibility but must not be treated as approval of the currently coded 70/30 calculation.
@@ -57,7 +57,7 @@
 - The new migration is additive and reversible on a disposable PostgreSQL database.
 - All 14 approved parcel statuses remain unchanged.
 - Invoice status constraint accepts all six agreed values and rejects unknown values.
-- Ledger amount is signed, idempotency scope is unique, and same-key/different-hash conflict is covered by integration tests.
+- Ledger amount is a positive magnitude with bucket/type direction semantics; idempotency scope is unique, and same-key/different-hash conflict is covered by integration tests.
 - Custody code hash format, expiry, single-use metadata, and bounded numeric attempt counter are structurally validated; the schema does not invent an attempt-limit policy.
 - Existing wallet available/pending balances are represented by opening ledger entries.
 - PostgreSQL CI applies both migrations, runs tests, then reverts both migrations on the disposable service.
