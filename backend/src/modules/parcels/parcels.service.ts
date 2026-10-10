@@ -136,8 +136,9 @@ export class ParcelsService {
         typeof dto.sender_phone !== 'string' || !dto.sender_phone.trim()) {
       throw new BadRequestException('Postal barcode and sender details are required');
     }
-    if (typeof dto.label_image_ref !== 'string' || dto.label_image_ref.length < 8 ||
-        dto.label_image_ref.length > 512 || /^https?:\/\//i.test(dto.label_image_ref) || dto.label_image_ref.includes('..')) {
+    if (dto.label_image_ref !== undefined && dto.label_image_ref !== null &&
+        (typeof dto.label_image_ref !== 'string' || dto.label_image_ref.length < 8 ||
+        dto.label_image_ref.length > 512 || /^https?:\/\//i.test(dto.label_image_ref) || dto.label_image_ref.includes('..'))) {
       throw new BadRequestException('A private label-photo storage reference is required; public URLs are not accepted');
     }
 
@@ -232,6 +233,47 @@ export class ParcelsService {
       });
     }
     throw new BadRequestException('Transactional persistence is required for consent-gated parcel registration');
+  }
+
+  async attachLabelImage(parcelId: string, evidenceRef: string, actor: UserPayload) {
+    if (actor.role !== UserRole.COURIER) {
+      throw new ForbiddenException('Only the assigned courier can attach the postal label image');
+    }
+    const expectedPrefix = `pudo-evidence://parcels/${parcelId}/label_image/`;
+    if (typeof evidenceRef !== 'string' || !evidenceRef.startsWith(expectedPrefix) ||
+        evidenceRef.length > 512 || evidenceRef.includes('..') || /^https?:\/\//i.test(evidenceRef)) {
+      throw new BadRequestException('A private LABEL_IMAGE reference uploaded for this parcel is required');
+    }
+
+    return this.dataSource.transaction(async (manager) => {
+      const parcel = await this.findParcelForUpdate(manager, parcelId);
+      if (!parcel) throw new NotFoundException('Parcel not found');
+      if (parcel.courier_id !== actor.sub) {
+        throw new ForbiddenException('Only the assigned courier can attach this label image');
+      }
+      if (parcel.status !== ParcelStatus.DELIVERY_ATTEMPT || parcel.proposed_hub_id || parcel.current_hub_id) {
+        throw new ConflictException('Label image must be attached before hub selection or custody transfer');
+      }
+      if (parcel.label_image_ref === evidenceRef) return { parcel, alreadyAttached: true };
+      if (parcel.label_image_ref) {
+        throw new ConflictException('A label image is already attached; replacement requires an audited correction workflow');
+      }
+      parcel.label_image_ref = evidenceRef;
+      const saved = await manager.getRepository(ParcelEntity).save(parcel);
+      await manager.getRepository(AuditLogEntity).save(manager.getRepository(AuditLogEntity).create({
+        actor_id: actor.sub,
+        actor_role: actor.role,
+        entity_type: 'parcel',
+        entity_id: parcel.id,
+        action: 'POSTAL_LABEL_IMAGE_ATTACHED',
+        old_state: { labelImageRef: null },
+        new_state: { labelImageRef: evidenceRef },
+        transaction_id: parcel.id,
+        correlation_id: `parcel-label-image:${parcel.id}`,
+        metadata: { evidenceCategory: 'LABEL_IMAGE' },
+      }));
+      return { parcel: saved, alreadyAttached: false };
+    });
   }
 
   async submitNetworkEntryReceipt(parcelId: string, evidenceRef: string, actor: UserPayload) {
@@ -523,6 +565,10 @@ export class ParcelsService {
       if (!parcel) throw new NotFoundException('Parcel not found');
       if (parcel.recipient_id !== actor.sub && parcel.recipient_phone !== actor.phone) {
         throw new ForbiddenException('Only the parcel recipient can request PUDO for this parcel');
+      }
+
+      if (!parcel.label_image_ref) {
+        throw new ConflictException('A private postal label image must be attached before hub selection');
       }
 
       const entryCharge = await manager.getRepository(NetworkEntryChargeEntity).findOne({ where: { parcel_id: parcel.id } });
