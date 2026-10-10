@@ -52,6 +52,15 @@ export class ParcelsController {
     return this.parcelsService.confirmHubReceipt(id, user);
   }
 
+  @Post(':id/confirm-customer-release')
+  @Roles(UserRole.HUB_OWNER)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Release a ready parcel to its recipient only after the invoice is paid' })
+  @ApiResponse({ status: 200, description: 'Parcel marked collected after verified payment reconciliation' })
+  async confirmCustomerRelease(@Param('id') id: string, @CurrentUser() user: UserPayload) {
+    return this.parcelsService.confirmCustomerRelease(id, user);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get parcel by ID (owner, recipient, or administrator)' })
   @ApiResponse({ status: 200, description: 'Parcel data' })
