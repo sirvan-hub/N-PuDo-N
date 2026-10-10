@@ -36,6 +36,7 @@ export class ParcelsService {
       ...dto,
       package_size: packageSize,
       base_post_cost: basePrice.basePostCost,
+      tariff_version_id: basePrice.tariffVersionId,
       recipient_id: recipient.id,
       current_hub_id: null,
       courier_id: courierId,
