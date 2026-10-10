@@ -108,3 +108,49 @@ input::placeholder{color:#b3beb6;letter-spacing:1px}
 .invitation-form input:focus,.invitation-form textarea:focus,.invitation-form select:focus{border-color:#5a9b7b;box-shadow:0 0 0 3px #4a997515}
 .invitation-form .primary-button,.invitation-form .outline-button{width:100%;margin-top:8px}
 @media(max-width:640px){.workflow-card{padding:16px}.invitation-form input[type=file]{font-size:10px}}
+
+
+.payout-card {
+  margin-top: 1.25rem;
+}
+
+.payout-history {
+  display: grid;
+  gap: 0.65rem;
+  margin: 1rem 0;
+}
+
+.payout-history-item {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border, #d9e0e8);
+  border-radius: 0.75rem;
+  background: var(--surface, #fff);
+}
+
+.payout-history-item strong {
+  font-size: 1rem;
+}
+
+.payout-history-item small {
+  overflow-wrap: anywhere;
+}
+
+.payout-history-item span {
+  justify-self: start;
+  border-radius: 999px;
+  padding: 0.2rem 0.65rem;
+  background: var(--soft-surface, #f1f4f8);
+  font-size: 0.8rem;
+}
+
+.payout-card > .outline-button {
+  margin: 0.75rem 0;
+}
+
+.payout-card > small.muted {
+  display: block;
+  line-height: 1.7;
+  margin-top: 0.75rem;
+}
