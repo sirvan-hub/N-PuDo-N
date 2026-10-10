@@ -5,6 +5,7 @@ type AuthUser = { sub?: string; id?: string; username?: string; phone?: string; 
 type AuthResponse = { access_token: string; user: AuthUser };
 type AppNotification = { id: string; category: string; title: string; body: string; reference_type?: string | null; reference_id?: string | null; expires_at?: string | null; read_at?: string | null; created_at: string };
 type PayoutRequest = { requestId: string; amount: number; status: string; createdAt?: string; reviewedAt?: string | null; reviewNote?: string | null; transferReference?: string | null };
+type PayoutQueueItem = PayoutRequest & { beneficiaryType?: 'COURIER' | 'HUB'; courierId?: string | null; hubId?: string | null; requestedBy?: string | null };
 
 const apiBase = (import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\/$/, '');
 
@@ -64,6 +65,9 @@ export default function App() {
   const [payoutMessage, setPayoutMessage] = useState('');
   const [payoutError, setPayoutError] = useState('');
   const [payoutLoading, setPayoutLoading] = useState(false);
+  const [adminPayoutQueue, setAdminPayoutQueue] = useState<PayoutQueueItem[]>([]);
+  const [destinationVerifyUserId, setDestinationVerifyUserId] = useState('');
+  const [destinationVerificationReference, setDestinationVerificationReference] = useState('');
 
   useEffect(() => {
     if (!session || !apiBase) {
