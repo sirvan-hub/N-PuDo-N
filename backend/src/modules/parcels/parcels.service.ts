@@ -672,6 +672,14 @@ export class ParcelsService {
         correlation_id: `delivery-code-verified:${transfer.id}`,
         metadata: { parcelId: parcel.id, invoiceId: invoice.id, awaitsRecipientEvidence: true },
       }));
+      await manager.getRepository(NotificationEntity).save(manager.getRepository(NotificationEntity).create({
+        user_id: parcel.recipient_id,
+        category: 'FINAL_HANDOVER_EVIDENCE_REQUIRED',
+        title: 'تأیید نهایی تحویل مرسوله',
+        body: 'هاب کد یک‌بارمصرف را تأیید کرده است. برای تکمیل تحویل، تأیید نهایی و مدرک تصویری را در پنل خود ثبت کنید.',
+        reference_type: 'custody_transfer',
+        reference_id: transfer.id,
+      }));
       return {
         verified: true,
         awaitingRecipientEvidence: true,
@@ -704,13 +712,23 @@ export class ParcelsService {
       if (parcel.recipient_id !== actor.sub && parcel.recipient_phone !== actor.phone) {
         throw new ForbiddenException('Only the registered recipient can confirm final handover');
       }
+      const transfers = manager.getRepository(CustodyTransferEntity);
+      if (parcel.status === ParcelStatus.COLLECTED && parcel.collected_at) {
+        const completedTransfer = await transfers.findOne({
+          where: { parcel_id: parcel.id, transfer_type: CustodyTransferType.HUB_TO_RECIPIENT, receiver_id: actor.sub, status: CustodyTransferStatus.CONFIRMED },
+          order: { created_at: 'DESC' },
+        });
+        if (completedTransfer?.recipient_handover_evidence_ref === evidenceRef) {
+          return { parcel, transfer: completedTransfer, alreadyConfirmed: true, collectedAt: parcel.collected_at.toISOString() };
+        }
+        throw new ConflictException('Parcel final handover has already been completed');
+      }
       if (parcel.status !== ParcelStatus.READY_FOR_CUSTOMER) {
         throw new ConflictException('Parcel is not awaiting final customer handover');
       }
       const invoice = await manager.getRepository(InvoiceEntity).findOne({ where: { parcel_id: parcel.id } });
       if (!invoice || invoice.status !== PaymentStatus.PAID) throw new ConflictException('Invoice must be PAID before final handover');
 
-      const transfers = manager.getRepository(CustodyTransferEntity);
       const transfer = await transfers.findOne({
         where: {
           parcel_id: parcel.id,
