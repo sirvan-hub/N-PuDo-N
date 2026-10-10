@@ -300,6 +300,7 @@ test('hub owner cannot release before payment and can release after invoice is p
       if (entity === HubEntity) return { findOne: async () => hub };
       if (entity === InvoiceEntity) return { findOne: async () => invoice };
       if (entity === CustodyTransferEntity) return { findOne: async () => transfer, save: async (value) => value };
+      if (entity === AuditLogEntity) return { create: (value) => value, save: async (value) => value };
       if (entity === require('../dist/database/entities/user.entity').UserEntity) return { findOne: async () => null };
       throw new Error('Unexpected repository');
     },
@@ -315,19 +316,21 @@ test('hub owner cannot release before payment and can release after invoice is p
     { create: async () => ({}) },
   );
   const owner = { sub: 'owner-1', phone: '+18880000001', role: UserRole.HUB_OWNER, is_verified: true };
-  await assert.rejects(service.confirmCustomerRelease(parcel.id, owner, '123456'),
+  await assert.rejects(service.confirmCustomerRelease(parcel.id, owner, '123456', 'private-hub-evidence-001'),
     (error) => error && error.getStatus && error.getStatus() === 409);
   assert.equal(parcel.status, ParcelStatus.READY_FOR_CUSTOMER);
 
   invoice.status = 'PAID';
-  await assert.rejects(service.confirmCustomerRelease(parcel.id, owner, '654321'),
+  await assert.rejects(service.confirmCustomerRelease(parcel.id, owner, '654321', 'private-hub-evidence-001'),
     (error) => error && error.getStatus && error.getStatus() === 401);
   assert.equal(transfer.failed_attempts, 1);
   const result = await service.confirmCustomerRelease(parcel.id, owner, '123456');
-  assert.equal(result.alreadyReleased, false);
-  assert.equal(result.parcel.status, ParcelStatus.COLLECTED);
-  assert.ok(result.parcel.collected_at instanceof Date);
-  assert.equal(result.invoiceId, invoice.id);
+  assert.equal(result.verified, true);
+  assert.equal(result.awaitingRecipientEvidence, true);
+  assert.equal(result.parcelId, parcel.id);
+  assert.equal(parcel.status, ParcelStatus.READY_FOR_CUSTOMER);
+  assert.ok(transfer.code_verified_at instanceof Date);
+  assert.equal(transfer.hub_handover_evidence_ref, 'private-hub-evidence-001');
 });
 
 test('recipient delivery code is atomically stored in the private in-app inbox with an audit event', async () => {
