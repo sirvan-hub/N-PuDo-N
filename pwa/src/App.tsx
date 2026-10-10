@@ -37,6 +37,19 @@ export default function App() {
   const [notificationError, setNotificationError] = useState('');
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [invitationPhone, setInvitationPhone] = useState('');
+  const [invitationId, setInvitationId] = useState('');
+  const [trackingCode, setTrackingCode] = useState('');
+  const [barcode, setBarcode] = useState('');
+  const [postalPostageAmount, setPostalPostageAmount] = useState('');
+  const [senderName, setSenderName] = useState('');
+  const [senderPhone, setSenderPhone] = useState('');
+  const [recipientPhone, setRecipientPhone] = useState('');
+  const [recipientName, setRecipientName] = useState('');
+  const [recipientAddress, setRecipientAddress] = useState('');
+  const [packageSize, setPackageSize] = useState<'SMALL' | 'MEDIUM' | 'LARGE'>('MEDIUM');
+  const [labelFile, setLabelFile] = useState<File | null>(null);
+  const [draftParcelId, setDraftParcelId] = useState('');
+
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
   const [workspaceMessage, setWorkspaceMessage] = useState('');
 
@@ -183,6 +196,96 @@ export default function App() {
     }
   }
 
+  async function uploadAndAttachLabel(parcelId: string, file: File) {
+    if (!session || !apiBase) throw new Error('نشست کاربری یا آدرس API معتبر نیست.');
+    const form = new FormData();
+    form.append('file', file);
+    form.append('category', 'LABEL_IMAGE');
+    const uploadResponse = await fetch(`${apiBase}/evidence/parcels/${encodeURIComponent(parcelId)}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.token}` },
+      body: form,
+    });
+    const uploadBody: unknown = await uploadResponse.json().catch(() => ({}));
+    if (!uploadResponse.ok) throw new Error(getApiError(uploadBody, `بارگذاری تصویر لیبل ناموفق بود (HTTP ${uploadResponse.status}).`));
+    const evidenceRef = uploadBody && typeof uploadBody === 'object' && 'evidence_ref' in uploadBody
+      ? (uploadBody as { evidence_ref?: unknown }).evidence_ref
+      : null;
+    if (typeof evidenceRef !== 'string' || !evidenceRef.startsWith(`pudo-evidence://parcels/${parcelId}/label_image/`)) {
+      throw new Error('پاسخ بارگذاری تصویر لیبل معتبر نیست.');
+    }
+    const attachResponse = await fetch(`${apiBase}/parcels/${encodeURIComponent(parcelId)}/label-image`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ evidence_ref: evidenceRef }),
+    });
+    const attachBody: unknown = await attachResponse.json().catch(() => ({}));
+    if (!attachResponse.ok) throw new Error(getApiError(attachBody, `اتصال تصویر لیبل به مرسوله ناموفق بود (HTTP ${attachResponse.status}).`));
+  }
+
+  async function submitParcelRegistration(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!session || !apiBase) return;
+    if (!labelFile) {
+      setWorkspaceMessage('برای ثبت مرسوله، انتخاب تصویر لیبل پستی الزامی است.');
+      return;
+    }
+    if (!Number.isSafeInteger(Number(postalPostageAmount)) || Number(postalPostageAmount) < 0) {
+      setWorkspaceMessage('کرایه واقعی درج‌شده روی لیبل باید عدد صحیح نامنفی باشد.');
+      return;
+    }
+    setWorkspaceBusy(true);
+    setWorkspaceMessage('');
+    try {
+      const response = await fetch(`${apiBase}/parcels`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          invitation_id: invitationId.trim(),
+          tracking_code: trackingCode.trim(),
+          barcode: barcode.trim(),
+          postal_postage_amount: Number(postalPostageAmount),
+          sender_name: senderName.trim(),
+          sender_phone: senderPhone.trim(),
+          recipient_phone: recipientPhone.trim(),
+          recipient_name: recipientName.trim(),
+          recipient_address: recipientAddress.trim(),
+          package_size: packageSize,
+        }),
+      });
+      const body: unknown = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(getApiError(body, `ثبت پیش‌نویس مرسوله ناموفق بود (HTTP ${response.status}).`));
+      const parcelId = body && typeof body === 'object' && 'id' in body ? (body as { id?: unknown }).id : null;
+      if (typeof parcelId !== 'string' || !parcelId) throw new Error('مرسوله ایجاد شد اما شناسه معتبر در پاسخ سرور نبود.');
+      setDraftParcelId(parcelId);
+      await uploadAndAttachLabel(parcelId, labelFile);
+      setDraftParcelId('');
+      setLabelFile(null);
+      setWorkspaceMessage(`مرسوله ${parcelId} ثبت شد و تصویر لیبل خصوصی آن متصل شد. انتخاب هاب تا تأیید پرداخت هزینه ورود امکان‌پذیر نیست.`);
+    } catch (cause) {
+      setWorkspaceMessage(cause instanceof Error ? cause.message : 'ثبت مرسوله یا بارگذاری تصویر لیبل ناموفق بود.');
+    } finally {
+      setWorkspaceBusy(false);
+    }
+  }
+
+  async function retryLabelAttachment() {
+    if (!draftParcelId || !labelFile) return;
+    setWorkspaceBusy(true);
+    setWorkspaceMessage('');
+    try {
+      await uploadAndAttachLabel(draftParcelId, labelFile);
+      const completedId = draftParcelId;
+      setDraftParcelId('');
+      setLabelFile(null);
+      setWorkspaceMessage(`تصویر لیبل به مرسوله ${completedId} متصل شد. انتخاب هاب تا تأیید پرداخت هزینه ورود امکان‌پذیر نیست.`);
+    } catch (cause) {
+      setWorkspaceMessage(cause instanceof Error ? cause.message : 'اتصال تصویر لیبل ناموفق بود.');
+    } finally {
+      setWorkspaceBusy(false);
+    }
+  }
+
   async function respondToInvitation(notification: AppNotification, accepted: boolean) {
     if (!session || !apiBase || !notification.reference_id) return;
     setWorkspaceBusy(true);
@@ -317,6 +420,42 @@ export default function App() {
                 <button className="primary-button" type="submit" disabled={workspaceBusy}>{workspaceBusy ? 'در حال ارسال…' : 'ارسال دعوت به مشتری'}</button>
               </form>
               {workspaceMessage && <p className="feedback notice" role="status">{workspaceMessage}</p>}
+            </section>
+          )}
+          {normalizedRole === 'COURIER' && (
+            <section className="workflow-card" aria-labelledby="parcel-register-heading">
+              <span className="eyebrow">PARCEL REGISTRATION</span>
+              <h2 id="parcel-register-heading">ثبت مرسوله و تصویر لیبل</h2>
+              <p className="muted">ابتدا شناسه دعوت تأییدشده را از پیام پاسخ مشتری وارد کنید. کرایه پستی باید دقیقاً از لیبل خوانده شود؛ تصویر لیبل را انتخاب کنید تا پس از ایجاد پیش‌نویس بارگذاری و به‌صورت خصوصی متصل شود.</p>
+              <form onSubmit={submitParcelRegistration} className="invitation-form">
+                <label htmlFor="acceptedInvitationId">شناسه دعوت تأییدشده</label>
+                <input id="acceptedInvitationId" dir="ltr" value={invitationId} onChange={(event) => setInvitationId(event.target.value.trim())} required />
+                <label htmlFor="trackingCode">کد رهگیری</label>
+                <input id="trackingCode" dir="ltr" value={trackingCode} onChange={(event) => setTrackingCode(event.target.value.trim())} maxLength={120} required />
+                <label htmlFor="barcode">بارکد روی لیبل</label>
+                <input id="barcode" dir="ltr" value={barcode} onChange={(event) => setBarcode(event.target.value.trim())} maxLength={120} required />
+                <label htmlFor="postalPostageAmount">کرایه واقعی پست (تومان)</label>
+                <input id="postalPostageAmount" type="number" min="0" step="1" inputMode="numeric" value={postalPostageAmount} onChange={(event) => setPostalPostageAmount(event.target.value)} required />
+                <label htmlFor="senderName">نام فرستنده</label>
+                <input id="senderName" value={senderName} onChange={(event) => setSenderName(event.target.value)} maxLength={120} required />
+                <label htmlFor="senderPhone">موبایل فرستنده</label>
+                <input id="senderPhone" dir="ltr" inputMode="tel" value={senderPhone} onChange={(event) => setSenderPhone(event.target.value.replace(/\s/g, ''))} maxLength={15} required />
+                <label htmlFor="recipientPhone">موبایل گیرنده</label>
+                <input id="recipientPhone" dir="ltr" inputMode="tel" value={recipientPhone} onChange={(event) => setRecipientPhone(event.target.value.replace(/\s/g, ''))} maxLength={15} required />
+                <label htmlFor="recipientName">نام گیرنده</label>
+                <input id="recipientName" value={recipientName} onChange={(event) => setRecipientName(event.target.value)} maxLength={120} required />
+                <label htmlFor="recipientAddress">نشانی گیرنده</label>
+                <textarea id="recipientAddress" value={recipientAddress} onChange={(event) => setRecipientAddress(event.target.value)} maxLength={500} required />
+                <label htmlFor="packageSize">اندازه بسته</label>
+                <select id="packageSize" value={packageSize} onChange={(event) => setPackageSize(event.target.value as 'SMALL' | 'MEDIUM' | 'LARGE')}>
+                  <option value="SMALL">کوچک</option><option value="MEDIUM">متوسط</option><option value="LARGE">بزرگ</option>
+                </select>
+                <label htmlFor="labelImage">تصویر لیبل پستی (JPEG، PNG یا WebP؛ حداکثر ۱۰ مگابایت)</label>
+                <input id="labelImage" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={(event) => setLabelFile(event.target.files?.[0] ?? null)} required={!draftParcelId} />
+                {draftParcelId && <p className="feedback notice">پیش‌نویس مرسوله ایجاد شده است. تصویر لیبل را دوباره انتخاب کنید یا اتصال آن را تکرار کنید. شناسه: <bdi dir="ltr">{draftParcelId}</bdi></p>}
+                <button className="primary-button" type="submit" disabled={workspaceBusy || Boolean(draftParcelId)}>{workspaceBusy ? 'در حال ثبت و بارگذاری…' : 'ثبت مرسوله و اتصال تصویر لیبل'}</button>
+                {draftParcelId && <button className="outline-button" type="button" disabled={workspaceBusy || !labelFile} onClick={() => void retryLabelAttachment()}>تلاش مجدد برای بارگذاری و اتصال تصویر</button>}
+              </form>
             </section>
           )}
           {normalizedRole === 'RECIPIENT' && workspaceMessage && <p className="feedback notice" role="status">{workspaceMessage}</p>}
