@@ -66,6 +66,8 @@ export default function App() {
   const [payoutError, setPayoutError] = useState('');
   const [payoutLoading, setPayoutLoading] = useState(false);
   const [adminPayoutQueue, setAdminPayoutQueue] = useState<PayoutQueueItem[]>([]);
+  const [payoutTransferReferences, setPayoutTransferReferences] = useState<Record<string, string>>({});
+  const [payoutTransferFailureReasons, setPayoutTransferFailureReasons] = useState<Record<string, string>>({});
   const [destinationVerifyUserId, setDestinationVerifyUserId] = useState('');
   const [destinationVerificationReference, setDestinationVerificationReference] = useState('');
 
@@ -299,6 +301,47 @@ export default function App() {
       setPayoutMessage('تأیید دستی مقصد ثبت شد؛ این عملیات استعلام خودکار بانک نیست.');
     } catch (cause) {
       setPayoutError(cause instanceof Error ? cause.message : 'ثبت تأیید مقصد تسویه ناموفق بود.');
+    } finally {
+      setPayoutLoading(false);
+    }
+  }
+
+  async function recordPayoutTransferResult(requestId: string, outcome: 'COMPLETED' | 'FAILED') {
+    if (!session || !apiBase) return;
+    const transferReference = (payoutTransferReferences[requestId] ?? '').trim();
+    const failureReason = (payoutTransferFailureReasons[requestId] ?? '').trim();
+    if (!transferReference) {
+      setPayoutError('برای ثبت نتیجه انتقال، مرجع خارجی تأییدشده را وارد کنید.');
+      return;
+    }
+    if (outcome === 'FAILED' && !failureReason) {
+      setPayoutError('برای انتقال ناموفق، علت شکست را نیز وارد کنید.');
+      return;
+    }
+    setPayoutLoading(true);
+    setPayoutError('');
+    setPayoutMessage('');
+    try {
+      const idempotencyKey = globalThis.crypto?.randomUUID?.() ?? ('payout-result-' + Date.now() + '-' + Math.random().toString(16).slice(2));
+      const response = await fetch(apiBase + '/settlements/payout-requests/' + encodeURIComponent(requestId) + '/transfer-result', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + session.token, 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify({ outcome, transferReference, ...(outcome === 'FAILED' ? { failureReason } : {}) }),
+      });
+      const body: unknown = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(getApiError(body, 'ثبت نتیجه انتقال ناموفق بود.'));
+      setPayoutMessage(outcome === 'COMPLETED'
+        ? 'نتیجه انتقال خارجی با مرجع ثبت شد؛ موجودی رزروشده تسویه شد.'
+        : 'شکست انتقال با مرجع ثبت شد و مبلغ به موجودی قابل استفاده برگشت.');
+      setPayoutTransferReferences((previous) => ({ ...previous, [requestId]: '' }));
+      setPayoutTransferFailureReasons((previous) => ({ ...previous, [requestId]: '' }));
+      const queueResponse = await fetch(apiBase + '/settlements/payout-requests', {
+        headers: { Authorization: 'Bearer ' + session.token },
+      });
+      const queueBody: unknown = await queueResponse.json().catch(() => []);
+      if (queueResponse.ok && Array.isArray(queueBody)) setAdminPayoutQueue(queueBody as PayoutQueueItem[]);
+    } catch (cause) {
+      setPayoutError(cause instanceof Error ? cause.message : 'ثبت نتیجه انتقال ناموفق بود.');
     } finally {
       setPayoutLoading(false);
     }
@@ -711,16 +754,30 @@ export default function App() {
                 <input id="destinationVerificationReference" dir="ltr" value={destinationVerificationReference} onChange={(event) => setDestinationVerificationReference(event.target.value.trim())} maxLength={160} required />
                 <button className="primary-button" type="submit" disabled={payoutLoading}>{payoutLoading ? 'در حال ثبت…' : 'ثبت تأیید دستی مقصد'}</button>
               </form>
-              {adminPayoutQueue.length === 0 && <p className="notification-empty">در حال حاضر درخواست تسویه در انتظار بررسی وجود ندارد.</p>}
+              {adminPayoutQueue.length === 0 && <p className="notification-empty">در حال حاضر درخواست تسویه‌ای برای بررسی یا ثبت نتیجه انتقال وجود ندارد.</p>}
               {adminPayoutQueue.map((item) => <article className="payout-history-item" key={item.requestId}>
                 <strong>{item.amount.toLocaleString('fa-IR')} تومان · {item.beneficiaryType === 'COURIER' ? 'سفیر' : 'هاب'}</strong>
                 <span>{item.status}</span>
                 <small dir="ltr">درخواست: {item.requestId}</small>
                 <small dir="ltr">کاربر: {item.courierId ?? item.requestedBy ?? '—'}{item.hubId ? ' · هاب: ' + item.hubId : ''}</small>
-                <div className="invitation-actions">
-                  <button className="primary-button" type="button" disabled={payoutLoading} onClick={() => void reviewPayoutRequest(item.requestId, 'APPROVE')}>تأیید درخواست</button>
-                  <button className="outline-button" type="button" disabled={payoutLoading} onClick={() => void reviewPayoutRequest(item.requestId, 'REJECT')}>رد درخواست</button>
-                </div>
+                {item.status === 'REQUESTED' ? (
+                  <div className="invitation-actions">
+                    <button className="primary-button" type="button" disabled={payoutLoading} onClick={() => void reviewPayoutRequest(item.requestId, 'APPROVE')}>تأیید درخواست</button>
+                    <button className="outline-button" type="button" disabled={payoutLoading} onClick={() => void reviewPayoutRequest(item.requestId, 'REJECT')}>رد درخواست</button>
+                  </div>
+                ) : item.status === 'APPROVED' ? (
+                  <div className="invitation-form">
+                    <p className="muted">درخواست تأیید شده است. پس از انجام انتقال خارج از سامانه و بررسی مستقل نتیجه، مرجع خارجی را ثبت کنید.</p>
+                    <label htmlFor={'transfer-reference-' + item.requestId}>مرجع خارجی انتقال یا نتیجه</label>
+                    <input id={'transfer-reference-' + item.requestId} dir="ltr" maxLength={160} value={payoutTransferReferences[item.requestId] ?? ''} onChange={(event) => setPayoutTransferReferences((previous) => ({ ...previous, [item.requestId]: event.target.value }))} required />
+                    <label htmlFor={'transfer-failure-' + item.requestId}>علت شکست (فقط در صورت انتقال ناموفق)</label>
+                    <input id={'transfer-failure-' + item.requestId} maxLength={500} value={payoutTransferFailureReasons[item.requestId] ?? ''} onChange={(event) => setPayoutTransferFailureReasons((previous) => ({ ...previous, [item.requestId]: event.target.value }))} />
+                    <div className="invitation-actions">
+                      <button className="primary-button" type="button" disabled={payoutLoading} onClick={() => void recordPayoutTransferResult(item.requestId, 'COMPLETED')}>ثبت انتقال موفق</button>
+                      <button className="outline-button" type="button" disabled={payoutLoading} onClick={() => void recordPayoutTransferResult(item.requestId, 'FAILED')}>ثبت انتقال ناموفق و آزادسازی مبلغ</button>
+                    </div>
+                  </div>
+                ) : null}
               </article>)}
               {payoutError && <p className="feedback error" role="alert">{payoutError}</p>}
               {payoutMessage && <p className="feedback notice" role="status">{payoutMessage}</p>}
