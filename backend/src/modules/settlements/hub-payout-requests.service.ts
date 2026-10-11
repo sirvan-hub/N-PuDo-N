@@ -303,7 +303,7 @@ export class HubPayoutRequestsService {
       .where('s.transaction_type IN (:...types)', {
         types: [SettlementTransactionType.HUB_PAYOUT, SettlementTransactionType.COURIER_PAYOUT],
       })
-      .andWhere('s.status = :status', { status: SettlementTransactionStatus.REQUESTED })
+      .andWhere('s.status IN (:...statuses)', { statuses: [SettlementTransactionStatus.REQUESTED, SettlementTransactionStatus.APPROVED] })
       .orderBy('s.created_at', 'ASC')
       .addOrderBy('s.id', 'ASC')
       .getMany();
