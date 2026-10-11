@@ -140,6 +140,11 @@ test('hub payout request reserves funds, is idempotent, and rejection releases t
     const held = await dataSource.query('SELECT balance, blocked_balance FROM wallets WHERE user_id = $1', [ownerId]);
     assert.equal(held[0].balance, 4000);
     assert.equal(Number(held[0].blocked_balance), 1000);
+    await assert.rejects(
+      service.requestPayout(hubId, 500, `payout-request-3-${suffix}`, owner),
+      (error) => error && error.getStatus && error.getStatus() === 409,
+      'a hub cannot open another payout while one is approved and awaiting transfer',
+    );
     const completed = await service.recordTransferResult(
       second.requestId, 'COMPLETED', `external-transfer-${suffix}`, undefined, `transfer-result-${suffix}`, admin,
     );
@@ -158,10 +163,6 @@ test('hub payout request reserves funds, is idempotent, and rejection releases t
       'a completed request cannot be reconciled again with a different idempotency key',
     );
     await assert.rejects(
-      service.requestPayout(hubId, 500, `payout-request-3-${suffix}`, owner),
-      (error) => error && error.getStatus && error.getStatus() === 409,
-    );
-    await assert.rejects(
       service.requestPayout(hubId, 100, `unauthorized-${suffix}`, admin),
       (error) => error && error.getStatus && error.getStatus() === 403,
     );
@@ -170,7 +171,7 @@ test('hub payout request reserves funds, is idempotent, and rejection releases t
     if (walletId) await dataSource.query('DELETE FROM wallet_transactions WHERE wallet_id = $1', [walletId]);
     if (ownerId || adminId) {
       await dataSource.query(
-        `DELETE FROM idempotency_records WHERE actor_scope = ANY($1::text[]) AND operation_type IN ('settlement.hub-payout-request', 'settlement.hub-payout-review')`,
+        `DELETE FROM idempotency_records WHERE actor_scope = ANY($1::text[]) AND operation_type IN ('settlement.hub-payout-request', 'settlement.hub-payout-review', 'settlement.payout-transfer-result')`,
         [[ownerId, adminId].filter(Boolean).map((id) => `user:${id}`)],
       );
     }
@@ -273,7 +274,7 @@ test('courier payout preference and request workflow is actor-scoped, idempotent
     if (walletId) await dataSource.query('DELETE FROM wallet_transactions WHERE wallet_id = $1', [walletId]);
     if (courierId || adminId) {
       await dataSource.query(
-        `DELETE FROM idempotency_records WHERE actor_scope = ANY($1::text[]) AND operation_type IN ('settlement.courier-payout-request', 'settlement.hub-payout-review')`,
+        `DELETE FROM idempotency_records WHERE actor_scope = ANY($1::text[]) AND operation_type IN ('settlement.courier-payout-request', 'settlement.hub-payout-review', 'settlement.payout-transfer-result')`,
         [[courierId, adminId].filter(Boolean).map((id) => `user:${id}`)],
       );
     }
