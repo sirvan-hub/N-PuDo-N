@@ -12,6 +12,7 @@ test('hub share settings and payout request routes declare the intended role bou
   assert.deepEqual(Reflect.getMetadata('roles', HubShareSettingsController), [UserRole.ADMIN, UserRole.SUPER_ADMIN]);
   assert.deepEqual(Reflect.getMetadata('roles', HubPayoutRequestsController.prototype.request), [UserRole.HUB_OWNER]);
   assert.deepEqual(Reflect.getMetadata('roles', HubPayoutRequestsController.prototype.review), [UserRole.ADMIN, UserRole.SUPER_ADMIN]);
+  assert.deepEqual(Reflect.getMetadata('roles', HubPayoutRequestsController.prototype.recordTransferResult), [UserRole.ADMIN, UserRole.SUPER_ADMIN]);
   assert.deepEqual(Reflect.getMetadata('roles', HubPayoutRequestsController.prototype.listQueue), [UserRole.ADMIN, UserRole.SUPER_ADMIN]);
   assert.deepEqual(Reflect.getMetadata('roles', HubPayoutRequestsController.prototype.list), [UserRole.HUB_OWNER, UserRole.ADMIN, UserRole.SUPER_ADMIN]);
   assert.deepEqual(Reflect.getMetadata('roles', CourierPayoutRequestsController.prototype.request), [UserRole.COURIER]);
@@ -139,6 +140,23 @@ test('hub payout request reserves funds, is idempotent, and rejection releases t
     const held = await dataSource.query('SELECT balance, blocked_balance FROM wallets WHERE user_id = $1', [ownerId]);
     assert.equal(held[0].balance, 4000);
     assert.equal(Number(held[0].blocked_balance), 1000);
+    const completed = await service.recordTransferResult(
+      second.requestId, 'COMPLETED', `external-transfer-${suffix}`, undefined, `transfer-result-${suffix}`, admin,
+    );
+    assert.equal(completed.status, 'COMPLETED');
+    assert.equal(completed.transferReference, `external-transfer-${suffix}`);
+    assert.equal(completed.blockedBalance, 0);
+    assert.equal((await service.recordTransferResult(
+      second.requestId, 'COMPLETED', `external-transfer-${suffix}`, undefined, `transfer-result-${suffix}`, admin,
+    )).status, 'COMPLETED', 'recording the same result with the same idempotency key must replay safely');
+    const settled = await dataSource.query('SELECT balance, blocked_balance FROM wallets WHERE user_id = $1', [ownerId]);
+    assert.equal(settled[0].balance, 4000);
+    assert.equal(Number(settled[0].blocked_balance), 0);
+    await assert.rejects(
+      service.recordTransferResult(second.requestId, 'COMPLETED', 'missing-ref', undefined, `no-ref-${suffix}`, admin),
+      (error) => error && error.getStatus && error.getStatus() === 409,
+      'a completed request cannot be reconciled again with a different idempotency key',
+    );
     await assert.rejects(
       service.requestPayout(hubId, 500, `payout-request-3-${suffix}`, owner),
       (error) => error && error.getStatus && error.getStatus() === 409,
@@ -241,6 +259,15 @@ test('courier payout preference and request workflow is actor-scoped, idempotent
     const held = await dataSource.query('SELECT balance, blocked_balance FROM wallets WHERE user_id = $1', [courierId]);
     assert.equal(held[0].balance, 4000);
     assert.equal(Number(held[0].blocked_balance), 1000);
+    const failed = await reviewer.recordTransferResult(
+      second.requestId, 'FAILED', `external-failure-${suffix}`, 'Transfer rejected by bank', `transfer-failed-${suffix}`, admin,
+    );
+    assert.equal(failed.status, 'FAILED');
+    assert.equal(failed.transferReference, `external-failure-${suffix}`);
+    assert.equal(failed.fundsReleased, true);
+    const released = await dataSource.query('SELECT balance, blocked_balance FROM wallets WHERE user_id = $1', [courierId]);
+    assert.equal(released[0].balance, 5000);
+    assert.equal(Number(released[0].blocked_balance), 0);
   } finally {
     if (courierId) await dataSource.query('DELETE FROM settlement_transactions WHERE requested_by = $1 AND transaction_type = \'COURIER_PAYOUT\'', [courierId]);
     if (walletId) await dataSource.query('DELETE FROM wallet_transactions WHERE wallet_id = $1', [walletId]);
