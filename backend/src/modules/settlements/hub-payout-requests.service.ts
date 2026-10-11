@@ -175,6 +175,126 @@ export class HubPayoutRequestsService {
     });
   }
 
+  async recordTransferResult(
+    requestId: string,
+    outcome: 'COMPLETED' | 'FAILED',
+    transferReference: string,
+    failureReason: string | undefined,
+    key: string,
+    actor: UserPayload,
+  ) {
+    if (![UserRole.ADMIN, UserRole.SUPER_ADMIN].includes(actor.role)) {
+      throw new ForbiddenException('Only an administrator can record an external payout result');
+    }
+    if (!requestId) throw new BadRequestException('requestId is required');
+    if (!['COMPLETED', 'FAILED'].includes(outcome)) throw new BadRequestException('outcome must be COMPLETED or FAILED');
+    this.validateKey(key);
+    const reference = transferReference?.trim();
+    if (!reference || reference.length > 160) {
+      throw new BadRequestException('An independently confirmed external transfer/result reference of 1-160 characters is required');
+    }
+    const normalizedFailure = failureReason?.trim() || null;
+    if (outcome === 'FAILED' && !normalizedFailure) {
+      throw new BadRequestException('failureReason is required when recording a failed transfer');
+    }
+    if (normalizedFailure && normalizedFailure.length > 500) {
+      throw new BadRequestException('failureReason must be at most 500 characters');
+    }
+
+    const operation = 'settlement.payout-transfer-result';
+    const hash = this.hash({ requestId, outcome, reference, failureReason: normalizedFailure, operation });
+    return this.dataSource.transaction(async (manager) => {
+      const idem = await this.getIdempotency(manager, actor.sub, operation, key, hash);
+      if (idem.state === IdempotencyState.COMPLETED) return idem.response_body;
+
+      const repo = manager.getRepository(SettlementTransactionEntity);
+      const query = repo.createQueryBuilder('s').where('s.id = :requestId', { requestId });
+      if (manager.connection.options.type === 'postgres') query.setLock('pessimistic_write');
+      const request = await query.getOne();
+      if (!request) throw new NotFoundException('Payout request not found');
+      if (![SettlementTransactionType.HUB_PAYOUT, SettlementTransactionType.COURIER_PAYOUT].includes(request.transaction_type)) {
+        throw new BadRequestException('Settlement transaction is not a hub/courier payout request');
+      }
+      if (request.status !== SettlementTransactionStatus.APPROVED) {
+        throw new ConflictException('Only APPROVED payout requests can receive an external transfer result');
+      }
+      if (!request.wallet_id) throw new ConflictException('Payout request has no linked wallet');
+
+      const wallet = await this.lockWalletById(manager, request.wallet_id);
+      const amount = Number(request.amount);
+      if (!wallet || !Number.isSafeInteger(amount) || amount <= 0 || Number(wallet.blocked_balance ?? 0) < amount) {
+        throw new ConflictException('Reserved payout funds are unavailable or inconsistent');
+      }
+      wallet.blocked_balance = Number(wallet.blocked_balance ?? 0) - amount;
+      if (outcome === 'FAILED') {
+        wallet.balance = Number(wallet.balance) + amount;
+        if (!Number.isSafeInteger(wallet.balance) || wallet.balance > 2_147_483_647) {
+          throw new ConflictException('Available wallet balance would exceed supported range');
+        }
+      }
+      await manager.getRepository(WalletEntity).save(wallet);
+
+      const ledger = manager.getRepository(WalletTransactionEntity);
+      if (outcome === 'COMPLETED') {
+        await ledger.save(ledger.create({
+          wallet_id: wallet.id, actor_id: actor.sub, idempotency_record_id: idem.id,
+          transaction_type: WalletTransactionType.PAYOUT, bucket: WalletBucket.BLOCKED,
+          amount: String(amount), bucket_balance_after: String(wallet.blocked_balance), currency_unit: 'TOMAN',
+          reference_type: 'SETTLEMENT', reference_id: request.id,
+          description: 'Externally confirmed payout; reserved funds settled',
+        }));
+      } else {
+        await ledger.save(ledger.create({
+          wallet_id: wallet.id, actor_id: actor.sub, idempotency_record_id: idem.id,
+          transaction_type: WalletTransactionType.RELEASE_HOLD, bucket: WalletBucket.BLOCKED,
+          amount: String(amount), bucket_balance_after: String(wallet.blocked_balance), currency_unit: 'TOMAN',
+          reference_type: 'SETTLEMENT', reference_id: request.id,
+          description: 'Release reserved funds after externally confirmed payout failure',
+        }));
+        await ledger.save(ledger.create({
+          wallet_id: wallet.id, actor_id: actor.sub, idempotency_record_id: idem.id,
+          transaction_type: WalletTransactionType.RELEASE_HOLD, bucket: WalletBucket.AVAILABLE,
+          amount: String(amount), bucket_balance_after: String(wallet.balance), currency_unit: 'TOMAN',
+          reference_type: 'SETTLEMENT', reference_id: request.id,
+          description: 'Return failed payout funds to available balance',
+        }));
+      }
+
+      const oldStatus = request.status;
+      request.status = outcome === 'COMPLETED' ? SettlementTransactionStatus.COMPLETED : SettlementTransactionStatus.FAILED;
+      request.provider_reference = reference;
+      request.failure_reason = outcome === 'FAILED' ? normalizedFailure : null;
+      request.completed_at = new Date();
+      await repo.save(request);
+      await manager.getRepository(AuditLogEntity).save(manager.getRepository(AuditLogEntity).create({
+        actor_id: actor.sub, actor_role: actor.role, entity_type: 'settlement_transaction', entity_id: request.id,
+        action: 'PAYOUT_EXTERNAL_RESULT_RECORDED', old_state: { status: oldStatus },
+        new_state: { status: request.status, transferReference: reference, fundsReleased: outcome === 'FAILED' },
+        transaction_id: request.id, correlation_id: key.slice(0, 120),
+        metadata: {
+          outcome, amount, beneficiaryType: request.transaction_type === SettlementTransactionType.COURIER_PAYOUT ? 'COURIER' : 'HUB',
+          externalConfirmation: 'MANUAL_OPERATOR_ATTESTATION',
+          note: 'No bank/provider API was called; reference was entered after out-of-band confirmation',
+        },
+      }));
+      const response = {
+        requestId: request.id, status: request.status, amount, currencyUnit: request.currency_unit,
+        transferReference: reference, failureReason: request.failure_reason,
+        availableBalance: wallet.balance, blockedBalance: wallet.blocked_balance,
+        fundsReleased: outcome === 'FAILED',
+        note: outcome === 'COMPLETED'
+          ? 'External transfer was recorded as completed based on the operator-supplied confirmation reference.'
+          : 'External transfer failure was recorded; reserved funds returned to available balance.',
+      };
+      idem.state = IdempotencyState.COMPLETED;
+      idem.response_status = 200;
+      idem.response_body = response;
+      idem.completed_at = new Date();
+      await manager.getRepository(IdempotencyRecordEntity).save(idem);
+      return response;
+    });
+  }
+
   async listPendingPayouts(actor: UserPayload) {
     if (![UserRole.ADMIN, UserRole.SUPER_ADMIN].includes(actor.role)) {
       throw new ForbiddenException('Only an administrator can read the payout review queue');
