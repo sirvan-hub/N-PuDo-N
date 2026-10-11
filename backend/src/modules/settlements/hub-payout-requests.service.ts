@@ -218,6 +218,14 @@ export class HubPayoutRequestsService {
       if (request.status !== SettlementTransactionStatus.APPROVED) {
         throw new ConflictException('Only APPROVED payout requests can receive an external transfer result');
       }
+      const duplicateReference = await repo.createQueryBuilder('existing')
+        .where('existing.provider_reference = :reference', { reference })
+        .andWhere('existing.transaction_type IN (:...types)', {
+          types: [SettlementTransactionType.HUB_PAYOUT, SettlementTransactionType.COURIER_PAYOUT],
+        })
+        .andWhere('existing.id <> :requestId', { requestId })
+        .getOne();
+      if (duplicateReference) throw new ConflictException('External payout result reference has already been recorded');
       if (!request.wallet_id) throw new ConflictException('Payout request has no linked wallet');
 
       const wallet = await this.lockWalletById(manager, request.wallet_id);
