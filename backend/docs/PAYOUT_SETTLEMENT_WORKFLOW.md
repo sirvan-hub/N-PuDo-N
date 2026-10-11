@@ -47,3 +47,17 @@ For the initial operational release, the product owner accepts the following **m
 This is an intentional current-release scope decision, not a claim that bank verification or transfer execution is integrated. Access to real destination details and the off-system transfer process must follow the operator's approved security procedures; do not store full bank/card/IBAN details in this application.
 
 **Future-version requirement:** automate destination verification, scheduled weekly/monthly payout execution, provider callbacks/reconciliation, and transfer-failure handling after an authorized bank/payment provider and its security/identity requirements have been selected and approved. Until then, keep these operations manual and auditable. Do not enable an unapproved provider or automatic live transfers.
+
+
+## Manual payout transfer result (current-release operation)
+
+After an administrator approves a payout request, an authorized operator must perform the transfer outside Pudo-N and independently confirm its outcome. The API endpoint `POST /v1/settlements/payout-requests/:requestId/transfer-result` records that manual attestation; it does not call a bank or payment provider.
+
+- Request body for success: `{ "outcome": "COMPLETED", "transferReference": "<external-confirmation-reference>" }`
+- Request body for a confirmed failure: `{ "outcome": "FAILED", "transferReference": "<external-result-reference>", "failureReason": "<reason>" }`
+- Every call requires an `Idempotency-Key` and is restricted to administrators.
+- Only `APPROVED` hub/courier payout requests can receive a result. A non-empty external reference is mandatory. Failed outcomes also require a reason.
+- On `COMPLETED`, the reserved amount is removed from blocked balance and a payout ledger entry is recorded. On `FAILED`, the reserved amount is released back to available balance and both ledger movements are recorded.
+- The request's final status, reference, operator, and audit event are persisted atomically. Approval alone never means a transfer occurred.
+
+This is an auditable operator attestation, not automated or independently machine-verified bank confirmation. Provider integration, callbacks, and automated failure recovery remain future-version requirements.
