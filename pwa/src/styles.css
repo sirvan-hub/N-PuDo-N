@@ -76,3 +76,81 @@ input::placeholder{color:#b3beb6;letter-spacing:1px}
 .auth-tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:#f2f6f1;padding:5px;border-radius:11px;margin:-8px 0 19px}
 .auth-tab{border:0;background:transparent;color:#718278;border-radius:8px;padding:9px 8px;font-size:11px}
 .auth-tab.selected{background:#fff;color:#245b46;font-weight:700;box-shadow:0 2px 8px #234a350c}
+
+
+.notification-section{margin:0 0 38px;padding:22px;background:#fff;border:1px solid #e4ece4;border-radius:17px}
+.notification-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}
+.notification-heading h2{font-size:17px;margin:5px 0 0}
+.notification-count{padding:7px 11px;background:#eff6ef;color:#46775f;border-radius:20px;font-size:10px;white-space:nowrap}
+.notification-empty{font-size:12px;color:#87958b;margin:8px 0}
+.notification-list{display:grid;gap:10px}
+.notification-card{padding:15px 16px;border:1px solid #e6ede6;border-radius:12px;background:#fbfcfa}
+.notification-card.unread{border-color:#a8c9b2;background:#f5faf5}
+.notification-card-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.notification-card-top strong{font-size:12px}
+.notification-card-top time{font-size:9px;color:#89998e;white-space:nowrap}
+.notification-card p{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;line-height:2;color:#52685c;margin:9px 0}
+.notification-expiry{display:block;color:#8b9c90;font-size:10px}
+.notification-card .text-button{margin-top:5px;padding:5px 0}
+@media(max-width:640px){.notification-section{padding:16px}.notification-card{padding:12px}.notification-card-top{flex-direction:column;gap:5px}.notification-card-top time{white-space:normal}.notification-heading h2{font-size:15px}}
+
+
+.workflow-card{margin:0 0 24px;padding:22px;background:#fff;border:1px solid #e4ece4;border-radius:17px}
+.workflow-card h2{font-size:17px;margin:6px 0 8px}
+.workflow-card>.muted{margin:0 0 17px}
+.invitation-form{display:grid;grid-template-columns:1fr;gap:9px}
+.invitation-form label{margin-top:5px}
+.invitation-form input,.invitation-form textarea,.invitation-form select{font:inherit;width:100%;border:1px solid #dce6dc;border-radius:11px;background:#fbfcfa;padding:11px 14px;outline:none;color:#183e35}
+.invitation-form input{height:46px}
+.invitation-form input[type=file]{height:auto;min-height:46px;padding:10px;font-size:11px}
+.invitation-form textarea{min-height:95px;resize:vertical}
+.invitation-form select{min-height:46px}
+.invitation-form input:focus,.invitation-form textarea:focus,.invitation-form select:focus{border-color:#5a9b7b;box-shadow:0 0 0 3px #4a997515}
+.invitation-form .primary-button,.invitation-form .outline-button{width:100%;margin-top:8px}
+@media(max-width:640px){.workflow-card{padding:16px}.invitation-form input[type=file]{font-size:10px}}
+
+
+.payout-card {
+  margin-top: 1.25rem;
+}
+
+.payout-history {
+  display: grid;
+  gap: 0.65rem;
+  margin: 1rem 0;
+}
+
+.payout-history-item {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border, #d9e0e8);
+  border-radius: 0.75rem;
+  background: var(--surface, #fff);
+}
+
+.payout-history-item strong {
+  font-size: 1rem;
+}
+
+.payout-history-item small {
+  overflow-wrap: anywhere;
+}
+
+.payout-history-item span {
+  justify-self: start;
+  border-radius: 999px;
+  padding: 0.2rem 0.65rem;
+  background: var(--soft-surface, #f1f4f8);
+  font-size: 0.8rem;
+}
+
+.payout-card > .outline-button {
+  margin: 0.75rem 0;
+}
+
+.payout-card > small.muted {
+  display: block;
+  line-height: 1.7;
+  margin-top: 0.75rem;
+}

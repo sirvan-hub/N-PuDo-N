@@ -4,7 +4,11 @@
   "scripts": {
     "start:dev": "nest start --watch",
     "build": "nest build",
-    "start": "node dist/main"
+    "start": "node dist/main",
+    "migration:show": "typeorm migration:show -d dist/database/data-source.js",
+    "migration:run": "typeorm migration:run -d dist/database/data-source.js",
+    "migration:revert": "typeorm migration:revert -d dist/database/data-source.js",
+    "test:postgres": "node --test test/database-options.test.cjs test/postgres-smoke.cjs"
   },
   "dependencies": {
     "@nestjs/common": "^10.0.0",
