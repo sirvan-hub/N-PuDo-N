@@ -337,6 +337,8 @@ export class HubPayoutRequestsService {
       requestId: row.id, hubId: row.hub_id, amount: Number(row.amount), currencyUnit: row.currency_unit,
       status: row.status, requestedBy: row.requested_by, reviewedBy: row.reviewed_by,
       reviewedAt: row.reviewed_at, reviewNote: row.review_note, createdAt: row.created_at,
+      transferReference: [SettlementTransactionStatus.COMPLETED, SettlementTransactionStatus.FAILED].includes(row.status) ? row.provider_reference : null,
+      failureReason: row.failure_reason, completedAt: row.completed_at,
     }));
   }
 
