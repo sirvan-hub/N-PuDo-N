@@ -17,6 +17,12 @@ class ReviewHubPayoutRequestDto {
   @IsOptional() @IsString() @MaxLength(500) note?: string;
 }
 
+class RecordPayoutTransferResultDto {
+  @IsIn(['COMPLETED', 'FAILED']) outcome: 'COMPLETED' | 'FAILED';
+  @IsString() @MinLength(1) @MaxLength(160) transferReference: string;
+  @IsOptional() @IsString() @MaxLength(500) failureReason?: string;
+}
+
 @ApiTags('Hub payout requests')
 @Controller('settlements')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -41,6 +47,20 @@ export class HubPayoutRequestsController {
   @ApiOperation({ summary: 'Read payout request history for an owned hub or as an administrator' })
   list(@Param('hubId') hubId: string, @CurrentUser() actor: UserPayload) {
     return this.payoutRequests.listForHub(hubId, actor);
+  }
+
+  @Post('payout-requests/:requestId/transfer-result')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Record a manually confirmed external payout result; requires an external reference and never calls a bank/provider' })
+  recordTransferResult(
+    @Param('requestId') requestId: string,
+    @Body() body: RecordPayoutTransferResultDto,
+    @Headers('idempotency-key') key: string,
+    @CurrentUser() actor: UserPayload,
+  ) {
+    return this.payoutRequests.recordTransferResult(
+      requestId, body.outcome, body.transferReference, body.failureReason, key, actor,
+    );
   }
 
   @Get('payout-requests')
