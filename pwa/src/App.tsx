@@ -742,7 +742,7 @@ export default function App() {
           )}
           {normalizedRole === 'RECIPIENT' && workspaceMessage && <p className="feedback notice" role="status">{workspaceMessage}</p>}
 
-          {normalizedRole === 'ADMIN' && (
+          {(normalizedRole === 'ADMIN' || normalizedRole === 'SUPER_ADMIN') && (
             <section className="workflow-card payout-card" aria-labelledby="admin-payout-heading">
               <span className="eyebrow">ADMIN SETTLEMENT REVIEW</span>
               <h2 id="admin-payout-heading">مدیریت تسویه سفیر و هاب</h2>
