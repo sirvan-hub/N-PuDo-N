@@ -102,3 +102,26 @@ Added after the label-image slice:
 - Regression tests for payout role boundaries, manual destination verification, destination-change invalidation, idempotency, reservation/release, and no-transfer-on-approval.
 
 **Verification boundary:** this work is not verified until Backend CI, PWA CI, and disposable PostgreSQL CI complete successfully on the current PR head. Weekly/monthly preferences are persisted but no scheduler is active. Real bank/provider verification and transfer execution are not implemented. PR #5 remains Draft and unmerged.
+
+
+## Final follow-up verification — 2026-10-11
+
+The label-image and payout implementation slices were extended after the initial read-only audit. On PR head `d503ac29ff06a9100d3bca463c5ee54edbf195a8`, the following CI runs completed successfully:
+
+- Backend CI: https://github.com/sirvan-hub/N-PuDo-N/actions/runs/38115251174
+- PWA CI: https://github.com/sirvan-hub/N-PuDo-N/actions/runs/38115251168
+- Disposable PostgreSQL CI: https://github.com/sirvan-hub/N-PuDo-N/actions/runs/38115251176
+
+The PostgreSQL run applied the versioned migrations, passed the database/financial/authorization contract tests, and passed the latest-migration revert check. Backend CI passed build and regression tests; PWA CI passed its build.
+
+### Manual payout transfer reconciliation slice
+
+- Admin PWA shows payout requests awaiting review and approved requests awaiting transfer-result reconciliation.
+- Admin-only `POST /v1/settlements/payout-requests/:requestId/transfer-result` accepts a manually confirmed `COMPLETED` or `FAILED` outcome with an external reference and idempotency key.
+- Success consumes the reserved blocked balance and writes a payout ledger entry. Confirmed failure returns reserved funds to available balance and records both ledger movements.
+- The result update is transactional and audited; duplicate external references are rejected. This endpoint does not contact a bank/provider and is an operator attestation, not automated provider verification.
+- Regression tests cover successful completion, failed-transfer fund release, and idempotent replay.
+
+### Readiness boundary
+
+CI passing does not make the project ready for a live pilot by itself. Before operational end-to-end verification, the private Supabase bucket and server-only credentials must be configured through the approved process and tested. Full receipt/custody/final evidence UI, upload-intent provenance and orphan cleanup, Android operational integration, retention/deletion, image decoding/EXIF handling, and the still-unapproved storage tariff/expiry policy remain open. PR #5 remains Draft and unmerged; no Production resources were changed.
