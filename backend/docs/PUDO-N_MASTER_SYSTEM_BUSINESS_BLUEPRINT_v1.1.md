@@ -216,3 +216,10 @@ The following core work remains incomplete and is still required before the syst
 - complete operational PWA and Android role panels, parcel registration and label review, hub selection/map, storage invoice/payment, camera-to-private-storage flow, and recipient final handover UI.
 
 The CI result is a statement about the code and tests executed at a specific commit only. It does not establish that an external payment provider, private storage, Android app, or production workflow is operational.
+
+
+## Payout operations — current release and future automation
+
+**Approved for the current operational release:** because expected payout volume is low, destination verification, payout request review, and execution/reconciliation of actual transfers may be performed manually by the system administrator/authorized operator. The application records the manual verification attestation and request decision; it does not itself verify bank-account ownership or execute a bank transfer. An approved request must not be marked completed until an independently confirmed transfer result and reference are recorded under the approved operating procedure. Full bank/card/IBAN details must not be stored in the application.
+
+**Required in a future version:** automate destination verification through an approved provider, scheduled weekly/monthly payout execution, transfer result callbacks and reconciliation, and safe retry/exception handling. Provider selection, identity/destination validation rules, and authorization must be approved before implementation. This manual mode is a deliberate low-volume launch decision and must not be mistaken for the final target architecture.
